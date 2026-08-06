@@ -338,3 +338,5 @@ export type ClockEventRequest = z.infer<typeof clockEventRequestSchema>;
 export type RegisterPaymentRequest = z.infer<typeof registerPaymentRequestSchema>;
 export type PayrollCalculationResponse = z.infer<typeof payrollCalculationResponseSchema>;
 export type ApiError = z.infer<typeof apiErrorSchema>;
+
+export * from './onboarding';

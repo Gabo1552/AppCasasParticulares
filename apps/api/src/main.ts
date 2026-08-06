@@ -3,10 +3,12 @@ import { randomUUID } from 'node:crypto';
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { CORRELATION_HEADER, createLogger, runWithContext } from '@casas/observability';
+import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import type { NextFunction, Request, Response } from 'express';
 import { AppModule } from './app.module';
 import { APP_CONFIG, type AppConfig } from './config/app-config';
+import { DomainExceptionFilter } from './common/http/domain-exception.filter';
 
 /**
  * Arranque de la API.
@@ -22,6 +24,9 @@ async function bootstrap(): Promise<void> {
     level: config.LOG_LEVEL,
     pretty: config.NODE_ENV === 'development',
   });
+
+  app.use(cookieParser());
+  app.useGlobalFilters(new DomainExceptionFilter());
 
   // Headers de seguridad. CSP restrictiva: la API sirve JSON, no HTML.
   app.use(
@@ -43,7 +48,13 @@ async function bootstrap(): Promise<void> {
     origin: config.CORS_ALLOWED_ORIGINS,
     credentials: true,
     methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'Idempotency-Key', CORRELATION_HEADER],
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'Idempotency-Key',
+      'x-csrf-token',
+      CORRELATION_HEADER,
+    ],
     maxAge: 600,
   });
 
