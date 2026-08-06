@@ -15,63 +15,103 @@ import {
 } from '../state-machines/time-entry';
 
 describe('Máquina de estados de la relación laboral', () => {
-  it('recorre el camino feliz de alta', () => {
+  it('recorre el camino feliz de alta (ADR 0002)', () => {
     let state: (typeof R)[keyof typeof R] = R.DRAFT;
 
-    state = relationship.transition(state, R.PENDING_WORKER_ACCEPTANCE, {
-      actorRole: PlatformRole.FAMILY_EMPLOYER,
-      payload: { hasHousehold: true },
-    });
-    expect(state).toBe(R.PENDING_WORKER_ACCEPTANCE);
-
+    // La trabajadora aceptó la invitación: nace la relación por configurar.
     state = relationship.transition(state, R.PENDING_CONFIGURATION, {
-      actorRole: PlatformRole.WORKER,
-      payload: { hasWorkerAcceptance: true },
+      actorRole: PlatformRole.SYSTEM,
+      payload: { hasHousehold: true },
     });
     expect(state).toBe(R.PENDING_CONFIGURATION);
 
-    state = relationship.transition(state, R.ACTIVE, {
+    // La familia carga condiciones y calendario, y las envía.
+    state = relationship.transition(state, R.PENDING_WORKER_ACCEPTANCE, {
       actorRole: PlatformRole.FAMILY_EMPLOYER,
       payload: { hasEffectiveTerms: true, hasPublishedSchedule: true },
+    });
+    expect(state).toBe(R.PENDING_WORKER_ACCEPTANCE);
+
+    // Sólo la aceptación de la trabajadora activa la relación.
+    state = relationship.transition(state, R.ACTIVE, {
+      actorRole: PlatformRole.WORKER,
+      payload: { hasWorkerAcceptance: true },
     });
     expect(state).toBe(R.ACTIVE);
   });
 
-  it('no permite invitar sin domicilio laboral (REL-02)', () => {
+  it('no crea una relación sin domicilio laboral (REL-02)', () => {
     expect(() =>
-      relationship.transition(R.DRAFT, R.PENDING_WORKER_ACCEPTANCE, {
+      relationship.transition(R.DRAFT, R.PENDING_CONFIGURATION, {
         actorRole: PlatformRole.FAMILY_EMPLOYER,
         payload: { hasHousehold: false },
       }),
     ).toThrow(TransitionGuardError);
   });
 
-  it('no permite activar sin condiciones vigentes ni calendario (INV-REL-04)', () => {
+  it('no envía condiciones sin condiciones vigentes ni calendario (INV-REL-04)', () => {
     expect(() =>
-      relationship.transition(R.PENDING_CONFIGURATION, R.ACTIVE, {
+      relationship.transition(R.PENDING_CONFIGURATION, R.PENDING_WORKER_ACCEPTANCE, {
         actorRole: PlatformRole.FAMILY_EMPLOYER,
         payload: { hasEffectiveTerms: false, hasPublishedSchedule: true },
       }),
     ).toThrow(/condiciones vigentes/);
 
     expect(() =>
-      relationship.transition(R.PENDING_CONFIGURATION, R.ACTIVE, {
+      relationship.transition(R.PENDING_CONFIGURATION, R.PENDING_WORKER_ACCEPTANCE, {
         actorRole: PlatformRole.FAMILY_EMPLOYER,
         payload: { hasEffectiveTerms: true, hasPublishedSchedule: false },
       }),
     ).toThrow(/horario previsto/);
   });
 
-  it('sólo la trabajadora puede aceptar la vinculación', () => {
-    const result = relationship.canTransition(
-      R.PENDING_WORKER_ACCEPTANCE,
-      R.PENDING_CONFIGURATION,
-      {
+  describe('la familia no puede activar unilateralmente (ADR 0002)', () => {
+    it('no existe ningún arco hacia ACTIVE ejecutable por la familia', () => {
+      const arcsToActive = relationship.transitions.filter((t) => t.to === R.ACTIVE);
+
+      expect(arcsToActive.length).toBeGreaterThan(0);
+      for (const arc of arcsToActive) {
+        // SUSPENDED → ACTIVE sí es de la familia: es reactivar, no activar.
+        if (arc.from === R.SUSPENDED) continue;
+        expect(
+          arc.allowedRoles.includes(PlatformRole.FAMILY_EMPLOYER),
+          `el arco ${arc.from} → ACTIVE no debería ser ejecutable por la familia`,
+        ).toBe(false);
+      }
+    });
+
+    it('el arco directo PENDING_CONFIGURATION → ACTIVE ya no existe', () => {
+      expect(relationship.hasTransition(R.PENDING_CONFIGURATION, R.ACTIVE)).toBe(false);
+      expect(() =>
+        relationship.transition(R.PENDING_CONFIGURATION, R.ACTIVE, {
+          actorRole: PlatformRole.FAMILY_EMPLOYER,
+          payload: { hasEffectiveTerms: true, hasPublishedSchedule: true },
+        }),
+      ).toThrow(IllegalStateTransitionError);
+    });
+
+    it('la familia no puede aceptar las condiciones en nombre de la trabajadora', () => {
+      const result = relationship.canTransition(R.PENDING_WORKER_ACCEPTANCE, R.ACTIVE, {
         actorRole: PlatformRole.FAMILY_EMPLOYER,
         payload: { hasWorkerAcceptance: true },
-      },
-    );
-    expect(result.allowed).toBe(false);
+      });
+      expect(result.allowed).toBe(false);
+    });
+  });
+
+  it('la trabajadora puede rechazar las condiciones, con motivo, y vuelven a configuración', () => {
+    expect(() =>
+      relationship.transition(R.PENDING_WORKER_ACCEPTANCE, R.PENDING_CONFIGURATION, {
+        actorRole: PlatformRole.WORKER,
+      }),
+    ).toThrow(/motivo/);
+
+    expect(
+      relationship.transition(R.PENDING_WORKER_ACCEPTANCE, R.PENDING_CONFIGURATION, {
+        actorRole: PlatformRole.WORKER,
+        payload: { reason: 'La remuneración no coincide con lo conversado' },
+      }),
+    ).toBe(R.PENDING_CONFIGURATION);
   });
 
   it('rechaza saltos arbitrarios de estado', () => {

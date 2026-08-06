@@ -10,6 +10,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { AppModule } from '../app.module';
 import { AdapterNotImplementedError } from '../adapters/pending-adapter';
 import { HealthController } from '../health/health.controller';
+import { PrismaService } from '../common/prisma/prisma.service';
 
 /**
  * Prueba de arranque de la aplicación.
@@ -48,13 +49,19 @@ describe('Arranque de la aplicación', () => {
   beforeAll(async () => {
     Object.assign(process.env, TEST_ENV);
 
-    const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
+    // Se sustituye Prisma por un doble: esta prueba verifica que el contenedor
+    // se arme y la aplicación arranque, no que la base responda. Lo que toca la
+    // base son las pruebas de integración.
+    const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
+      .overrideProvider(PrismaService)
+      .useValue({ $connect: async () => undefined, $disconnect: async () => undefined })
+      .compile();
     app = moduleRef.createNestApplication();
     await app.init();
   });
 
   afterAll(async () => {
-    await app.close();
+    await app?.close();
   });
 
   it('el módulo raíz se instancia y la aplicación inicia', () => {

@@ -1,5 +1,8 @@
 import type { Metadata, Viewport } from 'next';
 import type { ReactNode } from 'react';
+import { Encabezado } from '@/components/encabezado';
+import { SessionProvider } from '@/components/session-provider';
+import './globals.css';
 
 export const metadata: Metadata = {
   title: 'Plataforma de casas particulares',
@@ -16,7 +19,12 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   // es-AR: el idioma no es un detalle, define formato de fecha y número (NFR-08).
   return (
     <html lang="es-AR">
-      <body>{children}</body>
+      <body>
+        <SessionProvider>
+          <Encabezado />
+          <main className="contenido">{children}</main>
+        </SessionProvider>
+      </body>
     </html>
   );
 }

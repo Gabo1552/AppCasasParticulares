@@ -51,6 +51,25 @@ export const appConfigSchema = z.object({
 
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
 
+  // ── Correo saliente ───────────────────────────────────────────────────────
+  // En desarrollo apunta a Mailpit, que captura todo y no deja salir nada.
+  SMTP_HOST: z.string().min(1).default('localhost'),
+  SMTP_PORT: z.coerce.number().int().min(1).max(65535).default(1025),
+  SMTP_SECURE: booleanFromString.default('false'),
+  SMTP_USER: z.string().min(1).optional(),
+  SMTP_PASSWORD: z.string().min(1).optional(),
+  MAIL_FROM: z.string().min(1).default('Casas Particulares <no-responder@casasparticulares.local>'),
+
+  /**
+   * Endpoints de apoyo para las pruebas automatizadas (obtener el último código
+   * OTP o el token de una invitación sin leer el buzón).
+   *
+   * Se valida además contra NODE_ENV: `loadAppConfig` rechaza el arranque si
+   * llega en `true` con NODE_ENV=production. Sin esa doble condición, una
+   * variable mal puesta abriría una puerta de entrada sin autenticación.
+   */
+  FEATURE_TEST_SUPPORT_ENDPOINTS: booleanFromString.default('false'),
+
   // ── Feature flags ─────────────────────────────────────────────────────────
   /**
    * Integración oficial con ARCA. Con `false` se resuelve el conector asistido.
@@ -109,6 +128,13 @@ export function loadAppConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
 
     if (config.CORS_ALLOWED_ORIGINS.includes('*')) {
       throw new Error('CORS con "*" no está permitido en producción (docs/security-model.md §5).');
+    }
+
+    if (config.FEATURE_TEST_SUPPORT_ENDPOINTS) {
+      throw new Error(
+        'FEATURE_TEST_SUPPORT_ENDPOINTS expone códigos de acceso y tokens de invitación ' +
+          'sin autenticación. No puede habilitarse en producción.',
+      );
     }
   }
 

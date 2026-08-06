@@ -12,20 +12,15 @@ import { APP_CONFIG, loadAppConfig, type AppConfig } from './config/app-config';
 import { HealthController } from './health/health.controller';
 
 // Contexto: identidad y acceso
-import { IdentityModule } from './modules/identity/identity.module';
+import { OnboardingModule } from './modules/onboarding.module';
 import { UsersModule } from './modules/users/users.module';
 import { AuditModule } from './modules/audit/audit.module';
 
 // Contexto: partes
-import { EmployersModule } from './modules/employers/employers.module';
-import { WorkersModule } from './modules/workers/workers.module';
 import { AccountantsModule } from './modules/accountants/accountants.module';
 import { ProfessionalAssignmentsModule } from './modules/professional-assignments/professional-assignments.module';
 
 // Contexto: relación laboral
-import { HouseholdsModule } from './modules/households/households.module';
-import { EmploymentRelationshipsModule } from './modules/employment-relationships/employment-relationships.module';
-import { WorkSchedulesModule } from './modules/work-schedules/work-schedules.module';
 
 // Contexto: tiempo y novedades
 import { TimeTrackingModule } from './modules/time-tracking/time-tracking.module';
@@ -48,7 +43,6 @@ import { ReconciliationModule } from './modules/reconciliation/reconciliation.mo
 
 // Contexto: soporte
 import { DocumentsModule } from './modules/documents/documents.module';
-import { NotificationsModule } from './modules/notifications/notifications.module';
 import { SubscriptionsModule } from './modules/subscriptions/subscriptions.module';
 import { AdministrationModule } from './modules/administration/administration.module';
 import { SupportModule } from './modules/support/support.module';
@@ -127,18 +121,15 @@ const paymentProviderProvider: Provider = {
 
 @Module({
   imports: [
-    IdentityModule,
+    // Recorrido de onboarding: identity, users, employers, workers, households,
+    // employment-relationships, work-schedules, notifications y audit.
+    OnboardingModule,
+
     UsersModule,
     AuditModule,
 
-    EmployersModule,
-    WorkersModule,
     AccountantsModule,
     ProfessionalAssignmentsModule,
-
-    HouseholdsModule,
-    EmploymentRelationshipsModule,
-    WorkSchedulesModule,
 
     TimeTrackingModule,
     AttendanceCorrectionsModule,
@@ -156,7 +147,6 @@ const paymentProviderProvider: Provider = {
     ReconciliationModule,
 
     DocumentsModule,
-    NotificationsModule,
     SubscriptionsModule,
     AdministrationModule,
     SupportModule,

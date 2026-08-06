@@ -95,10 +95,27 @@ export function createLogger(options: LoggerOptions = {}): Logger {
             };
       },
     },
-    ...(options.pretty === true
+    ...(options.pretty === true && prettyDisponible()
       ? { transport: { target: 'pino-pretty', options: { colorize: true } } }
       : {}),
   });
+}
+
+/**
+ * ¿Se puede resolver `pino-pretty` desde acá?
+ *
+ * Es una dependencia de desarrollo, y con el enlazador aislado de pnpm puede no
+ * estar disponible en el paquete que ejecuta. Sin esta comprobación, pino lanza
+ * al construir el logger y **la API no arranca**: un formateador de logs que
+ * tumba el proceso es peor que unos logs feos. Si falta, se cae a JSON.
+ */
+function prettyDisponible(): boolean {
+  try {
+    require.resolve('pino-pretty');
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 // ─── Salud ───────────────────────────────────────────────────────────────────
