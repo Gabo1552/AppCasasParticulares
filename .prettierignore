@@ -6,3 +6,8 @@ coverage
 pnpm-lock.yaml
 packages/database/prisma/migrations
 docs/requirements-extract.md
+
+# Generado por Next y marcado como "should not be edited". Next 16 lo reescribe
+# en cada build con referencias a .next/types, así que formatearlo a mano produce
+# una diferencia que vuelve a aparecer sola.
+apps/web/next-env.d.ts

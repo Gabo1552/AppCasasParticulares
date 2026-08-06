@@ -27,12 +27,32 @@ updates:
           - 'expo'
           - 'expo-*'
           - '@expo/*'
-    # Prisma sube cliente y CLI por separado; actualizarlos desacoplados rompe la
-    # generación. Se revisan juntos y a mano.
+    # Majores que no son un bump sino una migración. Dependabot los vuelve a
+    # abrir cada semana y cada vez hay que rechazarlos con el mismo análisis, así
+    # que se ignoran hasta que se aborden como tarea propia. Cada entrada dice por
+    # qué; borrar la línea es lo que habilita la actualización.
     ignore:
+      # Cliente y CLI se suben juntos o rompe la generación. Además el 7 exige
+      # prisma.config.ts, quitar `url` del datasource y adaptar los exports.
       - dependency-name: '@prisma/client'
         update-types: ['version-update:semver-major']
       - dependency-name: 'prisma'
+        update-types: ['version-update:semver-major']
+
+      # La versión de React Native y de todo el árbol de Expo la determina el SDK
+      # de Expo, no se eligen por separado. Actualizar el SDK es la tarea; estos
+      # paquetes vienen con él.
+      - dependency-name: 'react-native'
+      - dependency-name: 'react-native-*'
+      - dependency-name: 'expo'
+      - dependency-name: 'expo-*'
+      - dependency-name: '@expo/*'
+
+      # zod 4 cambia la semántica de .default() sobre .transform(): pasa a esperar
+      # el tipo de salida. En este proyecto eso hacía que los feature flags
+      # tomaran el valor equivocado y se resolviera el conector oficial de ARCA,
+      # que debe estar deshabilitado. Migrar exige revisar cada .default().
+      - dependency-name: 'zod'
         update-types: ['version-update:semver-major']
     labels: ['dependencias']
 
