@@ -24,7 +24,7 @@
     "@casas/domain": "workspace:*",
     "@casas/payroll-engine": "workspace:*",
     "@types/node": "^22.10.2",
-    "eslint": "^9.17.0",
+    "eslint": "^10.8.0",
     "prisma": "^6.1.0",
     "tsx": "^4.19.2",
     "typescript": "^6.0.3"
