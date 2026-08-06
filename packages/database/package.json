@@ -17,7 +17,7 @@
     "test": "echo \"@casas/database: las pruebas de repositorio viven en apps/api (integración)\""
   },
   "dependencies": {
-    "@prisma/client": "^6.1.0"
+    "@prisma/client": "^7.9.1"
   },
   "devDependencies": {
     "@casas/config": "workspace:*",
