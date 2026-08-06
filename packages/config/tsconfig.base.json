@@ -3,8 +3,13 @@
   "compilerOptions": {
     "target": "ES2023",
     "lib": ["ES2023"],
-    "module": "CommonJS",
-    "moduleResolution": "Node",
+
+    // `node16` en lugar del viejo `node10`: TypeScript 6 deprecó `moduleResolution: Node`
+    // y dejará de aceptarlo en la 7. Los paquetes no declaran `"type": "module"`, así que
+    // `module: node16` sigue emitiendo CommonJS — que es lo que NestJS espera — y las
+    // importaciones relativas siguen sin necesitar extensión.
+    "module": "node16",
+    "moduleResolution": "node16",
 
     "strict": true,
     "noImplicitOverride": true,
