@@ -119,16 +119,18 @@ La resolución estricta de pnpm y ESLint lo impiden; `pnpm guardrails` lo verifi
 
 Empezá por acá. Cada documento responde una pregunta distinta.
 
-| Documento                                                                        | Responde                                                                   |
-| -------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
-| [`docs/product-summary.md`](docs/product-summary.md)                             | Qué es el producto, quién lo usa y qué principios lo condicionan           |
-| [`docs/domain-model.md`](docs/domain-model.md)                                   | Cómo se modela el dominio: agregados, invariantes, máquinas de estado      |
-| [`docs/architecture.md`](docs/architecture.md)                                   | Cómo se implementa: monolito modular, dinero, idempotencia, observabilidad |
-| [`docs/security-model.md`](docs/security-model.md)                               | Quién puede qué, qué se cifra, qué se audita, qué se minimiza              |
-| [`docs/arca-integration-strategy.md`](docs/arca-integration-strategy.md)         | Cómo se opera con ARCA sin API, sin scraping y sin claves fiscales         |
-| [`docs/implementation-roadmap.md`](docs/implementation-roadmap.md)               | Qué se construye en qué orden y cuándo está terminado                      |
-| [`docs/open-decisions.md`](docs/open-decisions.md)                               | Qué falta decidir, quién decide, y qué se hizo mientras tanto              |
-| [`docs/adr/0001-initial-architecture.md`](docs/adr/0001-initial-architecture.md) | Por qué se eligió esta arquitectura y qué se descartó                      |
+| Documento                                                                                  | Responde                                                                   |
+| ------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------- |
+| [`docs/product-summary.md`](docs/product-summary.md)                                       | Qué es el producto, quién lo usa y qué principios lo condicionan           |
+| [`docs/domain-model.md`](docs/domain-model.md)                                             | Cómo se modela el dominio: agregados, invariantes, máquinas de estado      |
+| [`docs/architecture.md`](docs/architecture.md)                                             | Cómo se implementa: monolito modular, dinero, idempotencia, observabilidad |
+| [`docs/security-model.md`](docs/security-model.md)                                         | Quién puede qué, qué se cifra, qué se audita, qué se minimiza              |
+| [`docs/arca-integration-strategy.md`](docs/arca-integration-strategy.md)                   | Cómo se opera con ARCA sin API, sin scraping y sin claves fiscales         |
+| [`docs/implementation-roadmap.md`](docs/implementation-roadmap.md)                         | Qué se construye en qué orden y cuándo está terminado                      |
+| [`docs/open-decisions.md`](docs/open-decisions.md)                                         | Qué falta decidir, quién decide, y qué se hizo mientras tanto              |
+| [`docs/adr/0001-initial-architecture.md`](docs/adr/0001-initial-architecture.md)           | Por qué se eligió esta arquitectura y qué se descartó                      |
+| [`docs/adr/0002-worker-accepts-conditions.md`](docs/adr/0002-worker-accepts-conditions.md) | Por qué la relación se activa sólo con la aceptación de la trabajadora     |
+| [`docs/e3-onboarding-manual-test.md`](docs/e3-onboarding-manual-test.md)                   | Cómo recorrer el onboarding a mano y qué mirar en cada paso                |
 
 El documento de requerimientos original está en
 [`docs/Requerimientos_Plataforma_Casas_Particulares_Argentina_v1.docx`](docs/), y su extracción
@@ -138,13 +140,21 @@ textual completa en [`docs/requirements-extract.md`](docs/requirements-extract.m
 
 ## Estado actual
 
-**Etapa 2 (base técnica) completa.** El recorrido vertical de la Etapa 3 todavía no está
-implementado: los 26 módulos del backend están declarados con su alcance documentado, pero sus
-casos de uso llegan en la próxima etapa (ver [`docs/implementation-roadmap.md`](docs/implementation-roadmap.md)).
+**Etapa 2 (base técnica) completa. Etapa 3, pasos 1 a 6, completos.**
+
+El recorrido de onboarding funciona de punta a punta desde el navegador, contra PostgreSQL real:
+una familia se registra, crea su perfil y su domicilio, invita a una trabajadora, ella acepta, la
+familia carga las condiciones y el horario semanal, y la relación queda activa **sólo** cuando la
+trabajadora acepta esas condiciones.
+
+Los pasos 7 a 16 —fichaje, liquidación, ARCA, pagos y conciliación— siguen pendientes
+(ver [`docs/implementation-roadmap.md`](docs/implementation-roadmap.md)). Para recorrerlo a mano,
+[`docs/e3-onboarding-manual-test.md`](docs/e3-onboarding-manual-test.md).
 
 ### Lo que ya funciona y está probado
 
-**218 pruebas y 11 verificaciones de principios, verdes en CI.**
+**262 pruebas unitarias, 48 de integración contra PostgreSQL real, 4 recorridos E2E en navegador y
+11 verificaciones de principios.**
 
 | Pieza                                                                           | Estado            |
 | ------------------------------------------------------------------------------- | ----------------- |
@@ -154,7 +164,11 @@ casos de uso llegan en la próxima etapa (ver [`docs/implementation-roadmap.md`]
 | Redacción de datos sensibles en logs                                            | 11 pruebas        |
 | Esquemas Zod compartidos                                                        | 18 pruebas        |
 | Conectores ARCA, `ManualTransferProvider`, policies y arranque de la aplicación | 52 pruebas        |
-| Invariantes contra PostgreSQL real (ver abajo)                                  | 16 pruebas        |
+| Identidad: OTP, vencimiento, intentos, rotación de refresh, reutilización       | 16 pruebas        |
+| Invitaciones: token, un solo uso, vencimiento, baja, reenvío, correo ajeno      | 15 pruebas        |
+| Contratos del onboarding: perfiles, domicilio, condiciones, calendario          | 26 pruebas        |
+| Invariantes y recorrido completo contra PostgreSQL real (ver abajo)             | 48 pruebas        |
+| Recorrido de la familia y la trabajadora en Chromium                            | 4 pruebas E2E     |
 | Verificación de principios del encargo                                          | 11 verificaciones |
 
 Lo verificado **contra una base de datos real** en cada corrida de CI, no sólo afirmado:
@@ -166,6 +180,12 @@ Lo verificado **contra una base de datos real** en cada corrida de CI, no sólo 
 - Los importes conservan precisión decimal exacta en el viaje de ida y vuelta a `NUMERIC(18,4)`.
 - Un fichaje reenviado con la misma clave de idempotencia no se duplica.
 - La API arranca y responde `/health` y `/ready`.
+- El recorrido completo de onboarding, sobre la aplicación real levantada con supertest.
+- Los ocho casos negativos de autorización del encargo: una familia no ve lo de otra, la trabajadora
+  sólo ve lo suyo, no puede tocar las condiciones económicas, la familia no puede aceptar por ella,
+  el token de invitación no habilita nada más, y el rol general nunca reemplaza el control de
+  propiedad.
+- La familia no puede activar la relación por ningún camino, ni por la interfaz ni por la API.
 
 ### Lo que no existe todavía, deliberadamente
 

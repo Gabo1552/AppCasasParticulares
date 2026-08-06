@@ -45,36 +45,20 @@ function requireReason(context: { payload?: Readonly<Record<string, unknown>> })
 const transitions: readonly TransitionDefinition<EmploymentRelationshipStatus>[] = [
   {
     from: S.DRAFT,
-    to: S.PENDING_WORKER_ACCEPTANCE,
-    allowedRoles: [PlatformRole.FAMILY_EMPLOYER],
-    description: 'La familia invita a la trabajadora (REL-01)',
+    to: S.PENDING_CONFIGURATION,
+    allowedRoles: [PlatformRole.FAMILY_EMPLOYER, PlatformRole.SYSTEM],
+    description: 'La trabajadora aceptó la invitación y la relación queda por configurar',
     guard: (context) =>
       payloadOf(context).hasHousehold === true
         ? true
-        : 'no se puede invitar sin un domicilio laboral cargado (REL-02)',
-  },
-  {
-    from: S.PENDING_WORKER_ACCEPTANCE,
-    to: S.PENDING_CONFIGURATION,
-    allowedRoles: [PlatformRole.WORKER],
-    description: 'La trabajadora acepta la vinculación (REL-01, REL-08)',
-    guard: (context) =>
-      payloadOf(context).hasWorkerAcceptance === true
-        ? true
-        : 'la aceptación debe registrarse con versión, usuario, fecha y evidencia (REL-08)',
-  },
-  {
-    from: S.PENDING_WORKER_ACCEPTANCE,
-    to: S.DRAFT,
-    allowedRoles: [PlatformRole.WORKER, PlatformRole.SYSTEM],
-    description: 'La trabajadora rechaza, o la invitación vence',
+        : 'no puede existir una relación sin domicilio laboral (REL-02)',
   },
   {
     from: S.PENDING_CONFIGURATION,
-    to: S.ACTIVE,
+    to: S.PENDING_WORKER_ACCEPTANCE,
     allowedRoles: [PlatformRole.FAMILY_EMPLOYER],
-    description: 'La familia completa la configuración y activa la relación',
-    // INV-REL-04: activar sin condiciones vigentes o sin calendario dejaría al motor
+    description: 'La familia envía las condiciones a la trabajadora para su aceptación',
+    // INV-REL-04: enviar sin condiciones vigentes o sin calendario dejaría al motor
     // de liquidación sin base de cálculo y al fichaje sin jornadas esperadas.
     guard: (context) => {
       const p = payloadOf(context);
@@ -86,6 +70,25 @@ const transitions: readonly TransitionDefinition<EmploymentRelationshipStatus>[]
       }
       return true;
     },
+  },
+  {
+    from: S.PENDING_WORKER_ACCEPTANCE,
+    to: S.ACTIVE,
+    allowedRoles: [PlatformRole.WORKER],
+    description: 'La trabajadora acepta las condiciones y la relación queda activa (REL-08)',
+    // El único camino a ACTIVE pasa por acá: la familia no puede activar sola
+    // (ADR 0002). La aceptación se registra con versión, usuario, fecha y evidencia.
+    guard: (context) =>
+      payloadOf(context).hasWorkerAcceptance === true
+        ? true
+        : 'la aceptación debe registrarse con versión, usuario, fecha y evidencia (REL-08)',
+  },
+  {
+    from: S.PENDING_WORKER_ACCEPTANCE,
+    to: S.PENDING_CONFIGURATION,
+    allowedRoles: [PlatformRole.WORKER, PlatformRole.FAMILY_EMPLOYER],
+    description: 'La trabajadora rechaza las condiciones, o la familia las retira para corregirlas',
+    guard: requireReason,
   },
   {
     from: S.ACTIVE,

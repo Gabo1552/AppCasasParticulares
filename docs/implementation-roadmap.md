@@ -80,14 +80,14 @@ pruebas verdes. Sin lógica de negocio todavía más allá del motor y las máqu
 
 Exactamente los 16 pasos del encargo. Cada uno es una historia con test.
 
-| #   | Paso                                    | Módulos                                      | Requerimientos                 |
-| --- | --------------------------------------- | -------------------------------------------- | ------------------------------ |
-| 1   | Una familia se registra                 | `identity`, `users`, `employers`             | SEG-01, SEG-04, PER-02         |
-| 2   | Crea un domicilio laboral               | `households`                                 | PER-02, REL-02                 |
-| 3   | Invita a una trabajadora                | `employment-relationships`, `notifications`  | REL-01                         |
-| 4   | La trabajadora acepta                   | `workers`, `employment-relationships`        | REL-01, REL-08                 |
-| 5   | La familia configura la relación        | `employment-relationships`                   | REL-02, REL-03, REL-05         |
-| 6   | Se genera un calendario semanal         | `work-schedules`                             | REL-04                         |
+| #   | Paso                                    | Módulos                                      | Requerimientos                 | Estado      |
+| --- | --------------------------------------- | -------------------------------------------- | ------------------------------ | ----------- |
+| 1   | Una familia se registra                 | `identity`, `users`, `employers`             | SEG-01, SEG-04, PER-02         | ✅ Completo |
+| 2   | Crea un domicilio laboral               | `households`                                 | PER-02, REL-02                 | ✅ Completo |
+| 3   | Invita a una trabajadora                | `employment-relationships`, `notifications`  | REL-01                         | ✅ Completo |
+| 4   | La trabajadora acepta                   | `workers`, `employment-relationships`        | REL-01, REL-08                 | ✅ Completo |
+| 5   | La familia configura la relación        | `employment-relationships`                   | REL-02, REL-03, REL-05         | ✅ Completo |
+| 6   | Se genera un calendario semanal         | `work-schedules`                             | REL-04                         | ✅ Completo |
 | 7   | La trabajadora ficha entrada y salida   | `time-tracking`                              | FIC-01, FIC-02, FIC-05         |
 | 8   | La familia aprueba el fichaje           | `time-tracking`, `attendance-corrections`    | FIC-06, FIC-07                 |
 | 9   | Se abre un período mensual              | `payroll-periods`                            | LIQ-01                         |
@@ -99,8 +99,40 @@ Exactamente los 16 pasos del encargo. Cada uno es una historia con test.
 | 15  | El período queda conciliado             | `reconciliation`                             | ARC-07, PAG-06                 |
 | 16  | Todo queda auditado                     | `audit`                                      | SEG-08                         |
 
+Los pasos 7 a 16 siguen pendientes; la tabla los conserva sin marca de estado.
+
 **Criterio de salida**: un test E2E de Playwright recorre los 16 pasos; la tabla `audit_event` contiene
 los 15 tipos de evento esperados; el período llega a `RECONCILED`.
+
+### Estado de los pasos 1 a 6
+
+Entregados y verificados contra PostgreSQL real y en navegador:
+
+- **Autenticación** por código de un solo uso enviado por correo. Sin contraseñas y sin OAuth. El
+  código se guarda como HMAC ligado al destino, vence a los 10 minutos, admite 5 intentos y está
+  limitado a 5 pedidos por ventana de 15 minutos. La respuesta es idéntica exista o no la cuenta.
+- **Sesiones** con refresh rotativo: reutilizar un token ya rotado invalida la familia entera.
+  Cookies `HttpOnly` + doble envío de CSRF. El modelo ya tiene `mfaEnabled` y el secreto cifrado,
+  así que sumar MFA no exige migrar.
+- **Perfiles** de familia y trabajadora con los mismos campos. Crear el perfil es lo que otorga el
+  rol: un usuario autenticado sin perfil no puede operar. No se pide clave fiscal, datos bancarios,
+  información impositiva ni documentación.
+- **Domicilios** con propiedad verificada por objeto: un domicilio ajeno responde 404, no 403.
+  Baja lógica, nunca borrado. Sin coordenadas en este sprint.
+- **Invitaciones** con token de 32 bytes guardado sólo como hash, de un solo uso, con vencimiento,
+  reenvío que invalida el anterior y baja. Aceptar **no** crea una relación activa.
+- **Condiciones y calendario**, con la remuneración como decimal exacto de punta a punta y el aviso
+  de datos de prueba en toda pantalla que muestre montos o categorías.
+- **Activación sólo por la trabajadora** (ADR 0002). No existe endpoint genérico de cambio de estado.
+
+Cobertura: 262 pruebas unitarias, 48 de integración contra PostgreSQL real y 4 recorridos E2E en
+Chromium. Los ocho casos negativos de autorización del encargo tienen prueba propia.
+
+**Deuda conocida de los pasos 1 a 6**: sin paginación en los listados (no hace falta con los
+volúmenes de una familia); sin edición de condiciones una vez activa la relación (es un cambio de
+condiciones vigentes, que corresponde a otra etapa); el rate limiting de OTP vive en la base y
+debería moverse a Redis cuando haya más de una instancia; las notificaciones se envían en línea y
+convendría pasarlas a la cola de BullMQ.
 
 **No se implementa en E3**: marketplace, matching, chat, pagos reales, API real de ARCA, verificación
 automática de identidad, facturación real, geolocalización continua, IA, microservicios.
