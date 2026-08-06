@@ -9,6 +9,7 @@ import { TokenService } from '../common/crypto/token.service';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { APP_CONFIG, loadAppConfig, type AppConfig } from '../config/app-config';
 import { IdentityController } from './identity/identity.controller';
+import { LegalController } from './legal/legal.controller';
 import { IdentityService } from './identity/identity.service';
 import { EmployersService } from './employers/employers.service';
 import { WorkersService } from './workers/workers.service';
@@ -51,6 +52,7 @@ const guards: Provider[] = [
   imports: [JwtModule.register({})],
   controllers: [
     IdentityController,
+    LegalController,
     EmployerProfileController,
     WorkerProfileController,
     HouseholdsController,

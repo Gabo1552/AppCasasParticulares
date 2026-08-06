@@ -518,8 +518,11 @@ model EmploymentRelationship {
   @@map("employment_relationship")
 }
 
+/// Modalidad de la prestación. Los nombres se prestan a confusión, así que:
 enum LiveInMode {
+  /// "Con retiro": la persona se retira del domicilio al terminar la jornada.
   WITH_WITHDRAWAL
+  /// "Sin retiro": la persona reside en el domicilio donde trabaja.
   WITHOUT_WITHDRAWAL
 }
 
