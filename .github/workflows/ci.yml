@@ -23,13 +23,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-        with:
-          version: ${{ env.PNPM_VERSION }}
+      # Sin pnpm ni caché a propósito: el script sólo usa Node y el sistema de
+      # archivos, no instala nada. Pedir `cache: pnpm` acá hacía fallar el job en
+      # la limpieza, porque el store de pnpm nunca llega a existir.
       - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: pnpm
       - name: Verificar principios (claves fiscales, scraping, float, custodia)
         run: node scripts/guardrails.mjs
 

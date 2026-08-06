@@ -17,6 +17,23 @@ updates:
       production-minor-patch:
         dependency-type: production
         update-types: ['minor', 'patch']
+        exclude-patterns:
+          # React Native versiona 0.x: un salto 0.76 → 0.86 es efectivamente mayor,
+          # y su versión la determina el SDK de Expo, no se elige por separado.
+          # Agrupado como "minor" atraviesa el pipeline sin ruido porque apps/mobile
+          # todavía no tiene build real. Va suelto para que se revise a mano.
+          - 'react-native'
+          - 'react-native-*'
+          - 'expo'
+          - 'expo-*'
+          - '@expo/*'
+    # Prisma sube cliente y CLI por separado; actualizarlos desacoplados rompe la
+    # generación. Se revisan juntos y a mano.
+    ignore:
+      - dependency-name: '@prisma/client'
+        update-types: ['version-update:semver-major']
+      - dependency-name: 'prisma'
+        update-types: ['version-update:semver-major']
     labels: ['dependencias']
 
   - package-ecosystem: github-actions
