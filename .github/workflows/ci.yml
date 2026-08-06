@@ -22,7 +22,7 @@ jobs:
     name: Principios del encargo
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
         with:
           version: ${{ env.PNPM_VERSION }}
@@ -81,7 +81,7 @@ jobs:
       FIELD_ENCRYPTION_KEY_ID: ci-key-1
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: pnpm/action-setup@v6
         with:
@@ -145,7 +145,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: guardrails
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
         with:
           version: ${{ env.PNPM_VERSION }}
