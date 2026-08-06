@@ -78,6 +78,9 @@ jobs:
       JWT_REFRESH_SECRET: ci-only-refresh-secret-not-used-anywhere-else
       FIELD_ENCRYPTION_KEY: ci-only-field-encryption-key-32-chars
       FIELD_ENCRYPTION_KEY_ID: ci-key-1
+      # Se hornea en el bundle de Next durante el build, así que tiene que estar
+      # antes del paso de build, no sólo al levantar el servidor.
+      NEXT_PUBLIC_API_BASE_URL: http://localhost:3001
 
     steps:
       - uses: actions/checkout@v7
@@ -138,6 +141,49 @@ jobs:
 
       - name: Pruebas de integración
         run: pnpm test:integration
+
+      # E2E: navegador real contra la API y la web servidas de verdad. Es lo
+      # único que verifica el recorrido tal como lo vive una persona; las
+      # pruebas de integración cubren la API, no la interfaz.
+      - name: Instalar Chromium para Playwright
+        run: pnpm --filter @casas/web exec playwright install --with-deps chromium
+
+      - name: Levantar la API
+        run: |
+          node apps/api/dist/main.js > /tmp/api.log 2>&1 &
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:3001/health && break
+            sleep 2
+          done
+          curl -sf http://localhost:3001/health || (echo "::error::La API no arrancó" && cat /tmp/api.log && exit 1)
+        env:
+          PORT: '3001'
+          # Habilita /test-support/*, que le da al E2E los códigos y los enlaces
+          # sin leer un buzón. La API se niega a arrancar con este flag encendido
+          # si NODE_ENV=production.
+          FEATURE_TEST_SUPPORT_ENDPOINTS: 'true'
+          SMTP_HOST: localhost
+          SMTP_PORT: '1025'
+
+      - name: Levantar la web
+        run: |
+          pnpm --filter @casas/web exec next start -p 3000 > /tmp/web.log 2>&1 &
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:3000/ > /dev/null && break
+            sleep 2
+          done
+          curl -sf http://localhost:3000/ > /dev/null || (echo "::error::La web no arrancó" && cat /tmp/web.log && exit 1)
+
+      - name: Pruebas de extremo a extremo
+        run: pnpm --filter @casas/web run test:e2e
+
+      - name: Guardar el reporte de Playwright si algo falló
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: apps/web/playwright-report/
+          retention-days: 7
 
   dependencies:
     name: Escaneo de dependencias

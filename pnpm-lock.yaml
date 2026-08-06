@@ -80,8 +80,8 @@ importers:
         specifier: ^5.4.2
         version: 5.11.1
       nodemailer:
-        specifier: ^6.9.16
-        version: 6.10.1
+        specifier: ^9.0.1
+        version: 9.0.4
       reflect-metadata:
         specifier: ^0.2.2
         version: 0.2.2
@@ -117,8 +117,8 @@ importers:
         specifier: ^26.1.2
         version: 26.1.2
       '@types/nodemailer':
-        specifier: ^6.4.17
-        version: 6.4.24
+        specifier: ^7.0.4
+        version: 7.0.12
       '@types/supertest':
         specifier: ^6.0.2
         version: 6.0.3
@@ -2768,8 +2768,8 @@ packages:
   '@types/node@26.1.2':
     resolution: {integrity: sha512-Vu4a5UFA9rIIFJ7rB/Vaafh9lrCQszopTCx6KjFboXTGQbPNasehVR5TEiithSDGyd1DEiUByggTZsg8jukeIg==}
 
-  '@types/nodemailer@6.4.24':
-    resolution: {integrity: sha512-Ww4u0rT9wQNXh4JiQaIwx3QWdcOFXzOjQA2zc+jtFYNmQiT4mIUqcDin51bDFdkzKubFnQCZNK7FIHlPKQ/q9w==}
+  '@types/nodemailer@7.0.12':
+    resolution: {integrity: sha512-80vKwiIsVSyFA1rRovH59jNPLBOuc6dRZIHEu40gXTkBkZnQv8vog1xSGEb9j5q/tdMAs5ivvDR2pLTU0hGHXA==}
 
   '@types/qs@6.15.1':
     resolution: {integrity: sha512-GZHUBZR9hckSUhrxmp1nG6NwdpM9fCunJwyThLW1X3AyHgd9IlHb6VANpQQqDr2o/qQp6McZ3y/IA2rVzKzSbw==}
@@ -5070,8 +5070,8 @@ packages:
     resolution: {integrity: sha512-MRlTqhAfoMx/4mhEbPo3Hi02g9LJZaJkka69V6h67Cb1gjrAG0jsTE4CZX1eptNx+VCAwJmfpnDIF4P0Nh1A7A==}
     engines: {node: '>=18'}
 
-  nodemailer@6.10.1:
-    resolution: {integrity: sha512-Z+iLaBGVaSjbIzQ4pX6XV41HrooLsQ10ZWPUehGmuantvzWoDVBnmsdUcOIDM1t+yPor5pDhVlDESgOMEGxhHA==}
+  nodemailer@9.0.4:
+    resolution: {integrity: sha512-LmJNRVRtfSCULxcZpy0Cpg4WWenlUZ9+zbmTO+S7v9wD6XreYLjXRFtDjtV/4F0HT5p1GyZfA0Ux/myxHb18CQ==}
     engines: {node: '>=6.0.0'}
 
   normalize-path@3.0.0:
@@ -9282,7 +9282,7 @@ snapshots:
     dependencies:
       undici-types: 8.3.0
 
-  '@types/nodemailer@6.4.24':
+  '@types/nodemailer@7.0.12':
     dependencies:
       '@types/node': 26.1.2
 
@@ -11911,7 +11911,7 @@ snapshots:
 
   node-releases@2.0.52: {}
 
-  nodemailer@6.10.1: {}
+  nodemailer@9.0.4: {}
 
   normalize-path@3.0.0: {}
 

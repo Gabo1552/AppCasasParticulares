@@ -30,7 +30,7 @@
     "zod": "^3.24.1",
     "@nestjs/jwt": "^11.0.2",
     "cookie-parser": "^1.4.7",
-    "nodemailer": "^6.9.16"
+    "nodemailer": "^9.0.1"
   },
   "devDependencies": {
     "@casas/config": "workspace:*",
@@ -43,7 +43,7 @@
     "typescript": "^6.0.3",
     "vitest": "^3.2.7",
     "@types/cookie-parser": "^1.4.8",
-    "@types/nodemailer": "^6.4.17",
+    "@types/nodemailer": "^7.0.4",
     "supertest": "^7.0.0",
     "@types/supertest": "^6.0.2",
     "unplugin-swc": "^1.5.1",
