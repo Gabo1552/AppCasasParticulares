@@ -26,6 +26,6 @@
     "@casas/config": "workspace:*",
     "@types/react": "^19.0.0",
     "eslint": "^9.17.0",
-    "typescript": "^5.7.2"
+    "typescript": "^6.0.3"
   }
 }
