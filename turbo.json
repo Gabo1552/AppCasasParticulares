@@ -23,7 +23,25 @@
     "test:integration": {
       "dependsOn": ["^build"],
       "cache": false,
-      "outputs": []
+      "outputs": [],
+      // Turborepo filtra el entorno: una tarea sólo recibe las variables
+      // declaradas acá o en globalEnv. Sin esta lista, las pruebas de integración
+      // arrancan sin DATABASE_URL y Prisma falla al inicializarse, aunque el
+      // workflow sí haya definido la variable.
+      "env": [
+        "DATABASE_URL",
+        "SHADOW_DATABASE_URL",
+        "REDIS_URL",
+        "STORAGE_*",
+        "JWT_*",
+        "FIELD_ENCRYPTION_*",
+        "API_BASE_URL",
+        "WEB_BASE_URL",
+        "CORS_ALLOWED_ORIGINS",
+        "PORT",
+        "LOG_LEVEL",
+        "FEATURE_*"
+      ]
     },
     "dev": {
       "cache": false,
