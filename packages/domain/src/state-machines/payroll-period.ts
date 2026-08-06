@@ -19,8 +19,7 @@ export const PayrollPeriodStatus = {
   CLOSED: 'CLOSED',
 } as const;
 
-export type PayrollPeriodStatus =
-  (typeof PayrollPeriodStatus)[keyof typeof PayrollPeriodStatus];
+export type PayrollPeriodStatus = (typeof PayrollPeriodStatus)[keyof typeof PayrollPeriodStatus];
 
 export interface PayrollPeriodTransitionPayload {
   readonly allAttendanceApproved?: boolean;
@@ -48,17 +47,13 @@ function payloadOf(context: {
  * pactada por debajo del mínimo vigente detiene el período hasta que alguien
  * autorizado la resuelva.
  */
-function noBlockingErrors(context: {
-  payload?: Readonly<Record<string, unknown>>;
-}): true | string {
+function noBlockingErrors(context: { payload?: Readonly<Record<string, unknown>> }): true | string {
   return payloadOf(context).hasBlockingErrors === true
     ? 'el cálculo tiene errores bloqueantes sin resolver (LIQ-10, RN-07)'
     : true;
 }
 
-function requireReason(context: {
-  payload?: Readonly<Record<string, unknown>>;
-}): true | string {
+function requireReason(context: { payload?: Readonly<Record<string, unknown>> }): true | string {
   const reason = payloadOf(context).reason;
   return typeof reason === 'string' && reason.trim().length > 0
     ? true

@@ -1,0 +1,1609 @@
+// Esquema físico inicial de la plataforma.
+//
+// Reglas que este esquema hace cumplir (docs/domain-model.md, ADR 0001):
+//   · Toda entidad crítica: id UUID, createdAt, updatedAt, createdByUserId, estado,
+//     y `version` para control de concurrencia optimista (decisión D11).
+//   · Dinero en Decimal(18,4). Nunca Float (RN-13, principio 11).
+//   · Sin borrado físico en relaciones laborales, liquidaciones, recibos, pagos ni
+//     auditoría: no hay `onDelete: Cascade` hacia esas entidades (decisión D10).
+//   · Ninguna columna guarda clave fiscal (SEG-06, principio 5).
+//   · CBU/CVU cifrados a nivel de aplicación; sólo `last4` es legible.
+//   · audit_event es append-only: la migración revoca UPDATE y DELETE al rol de
+//     aplicación (decisión D9).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  IDENTIDAD Y ACCESO
+// ═══════════════════════════════════════════════════════════════════════════
+
+enum PlatformRole {
+  FAMILY_EMPLOYER
+  WORKER
+  ACCOUNTANT
+  ACCOUNTANT_MANAGER
+  OPERATIONS_AGENT
+  PLATFORM_ADMIN
+  SUPPORT_AGENT
+  SYSTEM
+}
+
+enum UserStatus {
+  PENDING_VERIFICATION
+  ACTIVE
+  SUSPENDED
+  CLOSED
+}
+
+model User {
+  id                String     @id @default(uuid()) @db.Uuid
+  email             String?    @unique
+  phone             String?    @unique
+  // Argon2id. Nunca reversible, nunca en logs.
+  passwordHash      String?
+  emailVerifiedAt   DateTime?
+  phoneVerifiedAt   DateTime?
+  status            UserStatus @default(PENDING_VERIFICATION)
+
+  // MFA (SEG-02). El secreto va cifrado a nivel de aplicación.
+  mfaEnabled        Boolean    @default(false)
+  mfaSecretCipher   String?
+  mfaSecretKeyId    String?
+
+  displayName       String
+  locale            String     @default("es-AR")
+  timezone          String     @default("America/Argentina/Buenos_Aires")
+
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+  createdByUserId   String?    @db.Uuid
+  version           Int        @default(0)
+
+  roles             UserRole[]
+  sessions          Session[]
+  consents          Consent[]
+  employerProfile   Employer?
+  workerProfile     Worker?
+  accountantProfile Accountant?
+
+  @@index([status])
+  @@map("user")
+}
+
+model UserRole {
+  id        String       @id @default(uuid()) @db.Uuid
+  userId    String       @db.Uuid
+  role      PlatformRole
+  grantedAt DateTime     @default(now())
+  grantedByUserId String? @db.Uuid
+  revokedAt DateTime?
+
+  user      User         @relation(fields: [userId], references: [id])
+
+  @@unique([userId, role])
+  @@index([role])
+  @@map("user_role")
+}
+
+model Session {
+  id                String    @id @default(uuid()) @db.Uuid
+  userId            String    @db.Uuid
+  // Hash del refresh token: el token en claro nunca se persiste.
+  refreshTokenHash  String    @unique
+  // Familia de tokens: si llega un refresh ya consumido, se invalida toda la familia.
+  tokenFamilyId     String    @db.Uuid
+  deviceLabel       String?
+  ipAddress         String?
+  userAgent         String?
+  createdAt         DateTime  @default(now())
+  lastUsedAt        DateTime  @default(now())
+  expiresAt         DateTime
+  revokedAt         DateTime?
+  revokedReason     String?
+
+  user              User      @relation(fields: [userId], references: [id])
+
+  @@index([userId, revokedAt])
+  @@index([tokenFamilyId])
+  @@map("session")
+}
+
+/// Códigos de un solo uso para verificación de correo/teléfono (SEG-01).
+model OneTimeCode {
+  id          String    @id @default(uuid()) @db.Uuid
+  userId      String?   @db.Uuid
+  destination String
+  purpose     String
+  codeHash    String
+  attempts    Int       @default(0)
+  expiresAt   DateTime
+  consumedAt  DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([destination, purpose])
+  @@map("one_time_code")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  CONSENTIMIENTOS (SEG-04)
+// ═══════════════════════════════════════════════════════════════════════════
+
+enum ConsentKind {
+  TERMS_OF_SERVICE
+  PRIVACY_POLICY
+  GEOLOCATION_AT_CLOCK_IN
+  PROFESSIONAL_ENGAGEMENT
+  DATA_PROCESSING
+}
+
+/// Texto versionado. Se conserva el contenido exacto que la persona aceptó,
+/// no un puntero a la versión vigente.
+model ConsentDocument {
+  id          String      @id @default(uuid()) @db.Uuid
+  kind        ConsentKind
+  version     String
+  locale      String      @default("es-AR")
+  body        String
+  publishedAt DateTime
+  createdAt   DateTime    @default(now())
+
+  consents    Consent[]
+
+  @@unique([kind, version, locale])
+  @@map("consent_document")
+}
+
+model Consent {
+  id                String          @id @default(uuid()) @db.Uuid
+  userId            String          @db.Uuid
+  consentDocumentId String          @db.Uuid
+  purpose           String
+  acceptedAt        DateTime        @default(now())
+  ipAddress         String?
+  deviceId          String?
+  revokedAt         DateTime?
+
+  user              User            @relation(fields: [userId], references: [id])
+  document          ConsentDocument @relation(fields: [consentDocumentId], references: [id])
+
+  @@index([userId, purpose])
+  @@map("consent")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  PARTES
+// ═══════════════════════════════════════════════════════════════════════════
+
+enum IdentityVerificationStatus {
+  NOT_STARTED
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+model Employer {
+  id                 String                     @id @default(uuid()) @db.Uuid
+  userId             String                     @unique @db.Uuid
+  legalName          String
+  // CUIL/CUIT cifrado a nivel de aplicación. `cuilLast4` para búsqueda y despliegue.
+  cuilCipher         String?
+  cuilKeyId          String?
+  cuilLast4          String?
+  verificationStatus IdentityVerificationStatus @default(NOT_STARTED)
+  verifiedAt         DateTime?
+  verificationProvider String?
+
+  createdAt          DateTime                   @default(now())
+  updatedAt          DateTime                   @updatedAt
+  createdByUserId    String?                    @db.Uuid
+  version            Int                        @default(0)
+
+  user               User                       @relation(fields: [userId], references: [id])
+  households         Household[]
+  relationships      EmploymentRelationship[]
+  subscriptions      Subscription[]
+
+  @@map("employer")
+}
+
+model Worker {
+  id                 String                     @id @default(uuid()) @db.Uuid
+  userId             String                     @unique @db.Uuid
+  legalName          String
+  cuilCipher         String?
+  cuilKeyId          String?
+  cuilLast4          String?
+  birthDate          DateTime?                  @db.Date
+  verificationStatus IdentityVerificationStatus @default(NOT_STARTED)
+  verifiedAt         DateTime?
+  verificationProvider String?
+
+  createdAt          DateTime                   @default(now())
+  updatedAt          DateTime                   @updatedAt
+  createdByUserId    String?                    @db.Uuid
+  version            Int                        @default(0)
+
+  user               User                       @relation(fields: [userId], references: [id])
+  relationships      EmploymentRelationship[]
+  bankAccounts       WorkerBankAccount[]
+
+  @@map("worker")
+}
+
+enum BankAccountKind {
+  CBU
+  CVU
+}
+
+/// Datos bancarios. El número completo va cifrado; sólo `last4` es legible.
+/// Un cambio genera auditoría, notificación y exige confirmación reforzada (RN-10).
+model WorkerBankAccount {
+  id              String          @id @default(uuid()) @db.Uuid
+  workerId        String          @db.Uuid
+  kind            BankAccountKind
+  numberCipher    String
+  numberKeyId     String
+  last4           String
+  alias           String?
+  isPrimary       Boolean         @default(false)
+  confirmedAt     DateTime?
+  confirmedByUserId String?       @db.Uuid
+
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  createdByUserId String?         @db.Uuid
+  version         Int             @default(0)
+  archivedAt      DateTime?
+
+  worker          Worker          @relation(fields: [workerId], references: [id])
+  payments        Payment[]
+
+  @@index([workerId, archivedAt])
+  @@map("worker_bank_account")
+}
+
+model AccountingFirm {
+  id              String       @id @default(uuid()) @db.Uuid
+  name            String
+  jurisdiction    String
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  version         Int          @default(0)
+
+  accountants     Accountant[]
+
+  @@map("accounting_firm")
+}
+
+enum ProfessionalLicenseStatus {
+  PENDING_VERIFICATION
+  ACTIVE
+  EXPIRED
+  REVOKED
+}
+
+model Accountant {
+  id                String                     @id @default(uuid()) @db.Uuid
+  userId            String                     @unique @db.Uuid
+  accountingFirmId  String?                    @db.Uuid
+  legalName         String
+  licenseNumber     String
+  /// Jurisdicción de la matrícula. Limita el alcance del servicio (CON-02, 13.3).
+  jurisdiction      String
+  licenseStatus     ProfessionalLicenseStatus  @default(PENDING_VERIFICATION)
+  licenseValidUntil DateTime?                  @db.Date
+  licenseVerifiedAt DateTime?
+  /// Cantidad máxima de relaciones que acepta, para la asignación por capacidad (CON-05).
+  capacity          Int                        @default(0)
+
+  createdAt         DateTime                   @default(now())
+  updatedAt         DateTime                   @updatedAt
+  createdByUserId   String?                    @db.Uuid
+  version           Int                        @default(0)
+
+  user              User                       @relation(fields: [userId], references: [id])
+  firm              AccountingFirm?            @relation(fields: [accountingFirmId], references: [id])
+  assignments       ProfessionalAssignment[]
+  delegations       ARCADelegation[]
+
+  @@unique([licenseNumber, jurisdiction])
+  @@index([licenseStatus])
+  @@map("accountant")
+}
+
+enum ProfessionalAssignmentStatus {
+  PROPOSED
+  ACTIVE
+  PAUSED
+  REVOKED
+}
+
+/// Vínculo contador ↔ relación laboral. Es lo que otorga permiso por objeto:
+/// el rol ACCOUNTANT por sí solo no da acceso a ninguna relación (SEG-03, RN-11).
+model ProfessionalAssignment {
+  id                       String                       @id @default(uuid()) @db.Uuid
+  accountantId             String                       @db.Uuid
+  employmentRelationshipId String                       @db.Uuid
+  status                   ProfessionalAssignmentStatus @default(PROPOSED)
+  scope                    String
+  /// Carta de encargo aceptada por la familia (CON-03).
+  engagementLetterDocumentId String?                    @db.Uuid
+  acceptedByEmployerAt     DateTime?
+  acceptedByAccountantAt   DateTime?
+  revokedAt                DateTime?
+  revokedReason            String?
+
+  createdAt                DateTime                     @default(now())
+  updatedAt                DateTime                     @updatedAt
+  createdByUserId          String?                      @db.Uuid
+  version                  Int                          @default(0)
+
+  accountant               Accountant                   @relation(fields: [accountantId], references: [id])
+  relationship             EmploymentRelationship       @relation(fields: [employmentRelationshipId], references: [id])
+  reviews                  ProfessionalReview[]
+
+  @@unique([accountantId, employmentRelationshipId])
+  @@index([status])
+  @@map("professional_assignment")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  RELACIÓN LABORAL
+// ═══════════════════════════════════════════════════════════════════════════
+
+model Household {
+  id                  String                   @id @default(uuid()) @db.Uuid
+  employerId          String                   @db.Uuid
+  label               String
+  /// Dirección exacta: visible sólo a usuarios autorizados (PER-02).
+  addressLine         String
+  city                String
+  province            String
+  postalCode          String
+  timezone            String                   @default("America/Argentina/Buenos_Aires")
+  /// Código de zona desfavorable si corresponde. El valor lo define el parámetro (OD-18).
+  unfavorableZoneCode String?
+  /// Punto de referencia para el fichaje por proximidad. Sin traza de ubicación.
+  geoLat              Decimal?                 @db.Decimal(9, 6)
+  geoLng              Decimal?                 @db.Decimal(9, 6)
+  geoRadiusMeters     Int?
+
+  createdAt           DateTime                 @default(now())
+  updatedAt           DateTime                 @updatedAt
+  createdByUserId     String?                  @db.Uuid
+  version             Int                      @default(0)
+  archivedAt          DateTime?
+
+  employer            Employer                 @relation(fields: [employerId], references: [id])
+  relationships       EmploymentRelationship[]
+
+  @@index([employerId, archivedAt])
+  @@map("household")
+}
+
+enum EmploymentRelationshipStatus {
+  DRAFT
+  PENDING_WORKER_ACCEPTANCE
+  PENDING_CONFIGURATION
+  ACTIVE
+  SUSPENDED
+  TERMINATED
+  ARCHIVED
+}
+
+model EmploymentRelationship {
+  id                String                       @id @default(uuid()) @db.Uuid
+  employerId        String                       @db.Uuid
+  workerId          String?                      @db.Uuid
+  householdId       String                       @db.Uuid
+  status            EmploymentRelationshipStatus @default(DRAFT)
+  startDate         DateTime                     @db.Date
+  terminationDate   DateTime?                    @db.Date
+  terminationReason String?
+
+  /// Invitación (REL-01). El token se guarda hasheado.
+  invitationTokenHash String?
+  invitationSentAt    DateTime?
+  invitationExpiresAt DateTime?
+  workerAcceptedAt    DateTime?
+  /// Evidencia de la aceptación bilateral: versión, IP, dispositivo (REL-08).
+  workerAcceptanceEvidence Json?
+
+  createdAt         DateTime                     @default(now())
+  updatedAt         DateTime                     @updatedAt
+  createdByUserId   String?                      @db.Uuid
+  version           Int                          @default(0)
+
+  employer          Employer                     @relation(fields: [employerId], references: [id])
+  worker            Worker?                      @relation(fields: [workerId], references: [id])
+  household         Household                    @relation(fields: [householdId], references: [id])
+
+  terms             RelationshipTerms[]
+  schedules         WorkSchedule[]
+  timeEntries       TimeEntry[]
+  workDays          WorkDay[]
+  events            EmploymentEvent[]
+  payrollPeriods    PayrollPeriod[]
+  assignments       ProfessionalAssignment[]
+  arcaTasks         ARCATask[]
+  arcaDocuments     ARCADocument[]
+  arcaDelegations   ARCADelegation[]
+  payments          Payment[]
+  documents         Document[]
+
+  @@index([employerId, status])
+  @@index([workerId, status])
+  @@map("employment_relationship")
+}
+
+enum LiveInMode {
+  WITH_WITHDRAWAL
+  WITHOUT_WITHDRAWAL
+}
+
+enum RemunerationScheme {
+  MONTHLY
+  HOURLY
+}
+
+/// Condiciones versionadas de la relación.
+/// REL-05 y RN-02: nunca se sobrescribe un registro referenciado por una
+/// liquidación cerrada. Un cambio cierra la vigencia anterior y crea una nueva.
+model RelationshipTerms {
+  id                       String                 @id @default(uuid()) @db.Uuid
+  employmentRelationshipId String                 @db.Uuid
+  effectiveFrom            DateTime               @db.Date
+  effectiveTo              DateTime?              @db.Date
+
+  categoryCode             String
+  liveInMode               LiveInMode
+  remunerationScheme       RemunerationScheme
+  agreedRemuneration       Decimal                @db.Decimal(18, 4)
+  currency                 String                 @default("ARS")
+  weeklyHours              Int?
+
+  changeReason             String?
+  acceptedByWorkerAt       DateTime?
+
+  createdAt                DateTime               @default(now())
+  updatedAt                DateTime               @updatedAt
+  createdByUserId          String?                @db.Uuid
+  version                  Int                    @default(0)
+
+  relationship             EmploymentRelationship @relation(fields: [employmentRelationshipId], references: [id])
+
+  @@unique([employmentRelationshipId, effectiveFrom])
+  @@index([employmentRelationshipId, effectiveTo])
+  @@map("relationship_terms")
+}
+
+enum ClockInMethod {
+  BUTTON
+  QR
+  PIN
+  PROXIMITY
+  MANUAL
+}
+
+enum WorkScheduleStatus {
+  DRAFT
+  PUBLISHED
+  SUPERSEDED
+}
+
+/// Horario previsto: reglas semanales que generan las jornadas esperadas (REL-04).
+model WorkSchedule {
+  id                       String                 @id @default(uuid()) @db.Uuid
+  employmentRelationshipId String                 @db.Uuid
+  status                   WorkScheduleStatus     @default(DRAFT)
+  effectiveFrom            DateTime               @db.Date
+  effectiveTo              DateTime?              @db.Date
+
+  /// Métodos de fichaje habilitados. La familia elige (FIC-02, OD-07).
+  allowedMethods           ClockInMethod[]
+  defaultMethod            ClockInMethod          @default(BUTTON)
+  /// Redondeo y tolerancia. FIC-04: no ocultan el tiempo real, que se guarda aparte.
+  roundingMinutes          Int                    @default(0)
+  toleranceMinutes         Int                    @default(0)
+  /// PIN de fichaje, hasheado. Nunca en claro.
+  pinHash                  String?
+
+  createdAt                DateTime               @default(now())
+  updatedAt                DateTime               @updatedAt
+  createdByUserId          String?                @db.Uuid
+  version                  Int                    @default(0)
+
+  relationship             EmploymentRelationship @relation(fields: [employmentRelationshipId], references: [id])
+  rules                    WorkScheduleRule[]
+  exceptions               WorkScheduleException[]
+
+  @@index([employmentRelationshipId, status])
+  @@map("work_schedule")
+}
+
+model WorkScheduleRule {
+  id             String       @id @default(uuid()) @db.Uuid
+  workScheduleId String       @db.Uuid
+  /// 0 = domingo … 6 = sábado.
+  dayOfWeek      Int
+  /// Minutos desde medianoche, hora local del domicilio.
+  startMinute    Int
+  endMinute      Int
+  breakMinutes   Int          @default(0)
+
+  createdAt      DateTime     @default(now())
+
+  schedule       WorkSchedule @relation(fields: [workScheduleId], references: [id], onDelete: Cascade)
+
+  @@index([workScheduleId, dayOfWeek])
+  @@map("work_schedule_rule")
+}
+
+model WorkScheduleException {
+  id             String       @id @default(uuid()) @db.Uuid
+  workScheduleId String       @db.Uuid
+  date           DateTime     @db.Date
+  kind           String
+  startMinute    Int?
+  endMinute      Int?
+  note           String?
+
+  createdAt      DateTime     @default(now())
+
+  schedule       WorkSchedule @relation(fields: [workScheduleId], references: [id], onDelete: Cascade)
+
+  @@unique([workScheduleId, date])
+  @@map("work_schedule_exception")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  FICHAJE Y NOVEDADES
+// ═══════════════════════════════════════════════════════════════════════════
+
+enum TimeEntryStatus {
+  PENDING_SYNC
+  RECORDED
+  PENDING_APPROVAL
+  APPROVED
+  DISPUTED
+  CORRECTED
+  REJECTED
+}
+
+enum TimeEntryKind {
+  CLOCK_IN
+  CLOCK_OUT
+  BREAK_START
+  BREAK_END
+}
+
+model TimeEntry {
+  id                       String                 @id @default(uuid()) @db.Uuid
+  employmentRelationshipId String                 @db.Uuid
+  workDayId                String?                @db.Uuid
+  kind                     TimeEntryKind
+  status                   TimeEntryStatus        @default(PENDING_SYNC)
+
+  /// Hora declarada por el dispositivo y hora en que el servidor la recibió.
+  /// Se guardan las dos: FIC-03 exige detectar la carga tardía.
+  declaredAt               DateTime
+  receivedAt               DateTime               @default(now())
+  timezone                 String
+
+  method                   ClockInMethod
+  deviceId                 String?
+  deviceLabel              String?
+
+  /// Ubicación sólo del instante del fichaje, con precisión mínima (FIC-09).
+  geoLat                   Decimal?               @db.Decimal(9, 6)
+  geoLng                   Decimal?               @db.Decimal(9, 6)
+  geoAccuracyMeters        Int?
+
+  /// Idempotencia del fichaje offline (FIC-03, INV-TIME-03).
+  clientIdempotencyKey     String
+
+  /// Evidencia mínima: hash del QR leído, referencia del PIN usado, etc.
+  evidence                 Json?
+  note                     String?
+
+  /// Cuando este registro corrige a otro. El original nunca se borra (FIC-06).
+  correctsTimeEntryId      String?                @db.Uuid
+
+  createdAt                DateTime               @default(now())
+  updatedAt                DateTime               @updatedAt
+  createdByUserId          String?                @db.Uuid
+  version                  Int                    @default(0)
+
+  relationship             EmploymentRelationship @relation(fields: [employmentRelationshipId], references: [id])
+  workDay                  WorkDay?               @relation(fields: [workDayId], references: [id])
+  corrects                 TimeEntry?             @relation("TimeEntryCorrection", fields: [correctsTimeEntryId], references: [id])
+  correctedBy              TimeEntry[]            @relation("TimeEntryCorrection")
+  corrections              AttendanceCorrection[]
+
+  @@unique([employmentRelationshipId, clientIdempotencyKey])
+  @@index([employmentRelationshipId, declaredAt])
+  @@index([status])
+  @@map("time_entry")
+}
+
+enum WorkDayStatus {
+  OPEN
+  PENDING_APPROVAL
+  APPROVED
+  DISPUTED
+  LOCKED
+}
+
+/// Agregación diaria. RN-04: horas reales y computables se guardan por separado.
+model WorkDay {
+  id                       String                 @id @default(uuid()) @db.Uuid
+  employmentRelationshipId String                 @db.Uuid
+  payrollPeriodId          String?                @db.Uuid
+  date                     DateTime               @db.Date
+  status                   WorkDayStatus          @default(OPEN)
+
+  realMinutes              Int                    @default(0)
+  computableMinutes        Int                    @default(0)
+  overtimeMinutes          Int                    @default(0)
+  breakMinutes             Int                    @default(0)
+  isHoliday                Boolean                @default(false)
+  /// Regla de redondeo aplicada, para poder explicar la diferencia (FIC-04).
+  appliedRoundingRule      String?
+
+  approvedAt               DateTime?
+  approvedByUserId         String?                @db.Uuid
+
+  createdAt                DateTime               @default(now())
+  updatedAt                DateTime               @updatedAt
+  createdByUserId          String?                @db.Uuid
+  version                  Int                    @default(0)
+
+  relationship             EmploymentRelationship @relation(fields: [employmentRelationshipId], references: [id])
+  payrollPeriod            PayrollPeriod?         @relation(fields: [payrollPeriodId], references: [id])
+  timeEntries              TimeEntry[]
+
+  @@unique([employmentRelationshipId, date])
+  @@index([payrollPeriodId, status])
+  @@map("work_day")
+}
+
+enum AttendanceCorrectionStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model AttendanceCorrection {
+  id                String                     @id @default(uuid()) @db.Uuid
+  timeEntryId       String                     @db.Uuid
+  status            AttendanceCorrectionStatus @default(PENDING)
+  requestedByUserId String                     @db.Uuid
+  reason            String
+  proposedAt        DateTime
+  resolvedAt        DateTime?
+  resolvedByUserId  String?                    @db.Uuid
+  resolutionNote    String?
+
+  createdAt         DateTime                   @default(now())
+  updatedAt         DateTime                   @updatedAt
+  version           Int                        @default(0)
+
+  timeEntry         TimeEntry                  @relation(fields: [timeEntryId], references: [id])
+
+  @@index([status])
+  @@map("attendance_correction")
+}
+
+enum EmploymentEventType {
+  ABSENCE_UNJUSTIFIED
+  ABSENCE_JUSTIFIED
+  PAID_LEAVE
+  UNPAID_LEAVE
+  VACATION
+  ADVANCE
+  HOLIDAY
+  OTHER
+}
+
+enum EmploymentEventStatus {
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+}
+
+/// Novedades del período: ausencias, licencias, vacaciones, adelantos (LIQ-07).
+model EmploymentEvent {
+  id                       String                 @id @default(uuid()) @db.Uuid
+  employmentRelationshipId String                 @db.Uuid
+  payrollPeriodId          String?                @db.Uuid
+  type                     EmploymentEventType
+  status                   EmploymentEventStatus  @default(PENDING_APPROVAL)
+  fromDate                 DateTime               @db.Date
+  toDate                   DateTime               @db.Date
+  days                     Int                    @default(0)
+  amount                   Decimal?               @db.Decimal(18, 4)
+  reason                   String?
+  /// Respaldo documental de la novedad (LIQ-07).
+  supportingDocumentId     String?                @db.Uuid
+
+  requestedByUserId        String                 @db.Uuid
+  approvedAt               DateTime?
+  approvedByUserId         String?                @db.Uuid
+
+  createdAt                DateTime               @default(now())
+  updatedAt                DateTime               @updatedAt
+  createdByUserId          String?                @db.Uuid
+  version                  Int                    @default(0)
+
+  relationship             EmploymentRelationship @relation(fields: [employmentRelationshipId], references: [id])
+  payrollPeriod            PayrollPeriod?         @relation(fields: [payrollPeriodId], references: [id])
+
+  @@index([employmentRelationshipId, fromDate])
+  @@index([payrollPeriodId, status])
+  @@map("employment_event")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  PARÁMETROS NORMATIVOS
+// ═══════════════════════════════════════════════════════════════════════════
+
+enum ParameterVersionStatus {
+  DRAFT
+  UNDER_REVIEW
+  PUBLISHED
+  ARCHIVED
+}
+
+/// Versión inmutable de parámetros (RN-01, RN-02, LIQ-02).
+///
+/// Una vez PUBLISHED no se modifica: un cambio crea una versión nueva. La publicación
+/// exige doble control — preparedByUserId ≠ approvedByUserId (CON-11, ADM-02).
+///
+/// `payload` contiene la estructura completa que consume @casas/payroll-engine.
+/// `isFixture` marca los datos de prueba; `source` es obligatorio y en los fixtures
+/// lleva el prefijo "FIXTURE — DATO DE PRUEBA, NO OFICIAL".
+model PayrollParameterVersion {
+  id                String                 @id @default(uuid()) @db.Uuid
+  label             String
+  status            ParameterVersionStatus @default(DRAFT)
+  source            String
+  isFixture         Boolean                @default(true)
+  effectiveFrom     DateTime               @db.Date
+  effectiveTo       DateTime?              @db.Date
+  currency          String                 @default("ARS")
+  payload           Json
+
+  preparedByUserId  String?                @db.Uuid
+  approvedByUserId  String?                @db.Uuid
+  publishedAt       DateTime?
+  supersedesVersionId String?              @db.Uuid
+
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+  createdByUserId   String?                @db.Uuid
+  version           Int                    @default(0)
+
+  calculations      PayrollCalculation[]
+
+  @@index([status, effectiveFrom])
+  @@map("payroll_parameter_version")
+}
+
+/// Catálogo de categorías administrable sin desplegar código (LIQ-03, OD-19).
+model WorkerCategory {
+  id          String   @id @default(uuid()) @db.Uuid
+  code        String   @unique
+  label       String
+  description String?
+  isFixture   Boolean  @default(true)
+  active      Boolean  @default(true)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  version     Int      @default(0)
+
+  @@map("worker_category")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  LIQUIDACIÓN
+// ═══════════════════════════════════════════════════════════════════════════
+
+enum PayrollPeriodStatus {
+  OPEN
+  PENDING_ATTENDANCE_APPROVAL
+  READY_FOR_CALCULATION
+  CALCULATED
+  PENDING_PROFESSIONAL_REVIEW
+  OBSERVED
+  APPROVED
+  PENDING_ARCA
+  ARCA_DOCUMENT_IMPORTED
+  PENDING_PAYMENT
+  PAID
+  RECONCILED
+  RECTIFICATION_REQUIRED
+  CLOSED
+}
+
+enum PeriodType {
+  MONTHLY
+  EXTRAORDINARY
+  FINAL
+}
+
+model PayrollPeriod {
+  id                       String                 @id @default(uuid()) @db.Uuid
+  employmentRelationshipId String                 @db.Uuid
+  year                     Int
+  month                    Int
+  periodType               PeriodType             @default(MONTHLY)
+  status                   PayrollPeriodStatus    @default(OPEN)
+  fromDate                 DateTime               @db.Date
+  toDate                   DateTime               @db.Date
+
+  /// Versión vigente de la liquidación. Las anteriores permanecen (RN-06).
+  currentVersionNumber     Int                    @default(0)
+  attendanceApprovedAt     DateTime?
+  attendanceApprovedByUserId String?              @db.Uuid
+  closedAt                 DateTime?
+  closedByUserId           String?                @db.Uuid
+  /// Número interno que genera el cierre (LIQ-12).
+  settlementNumber         String?                @unique
+
+  createdAt                DateTime               @default(now())
+  updatedAt                DateTime               @updatedAt
+  createdByUserId          String?                @db.Uuid
+  version                  Int                    @default(0)
+
+  relationship             EmploymentRelationship @relation(fields: [employmentRelationshipId], references: [id])
+  versions                 PayrollVersion[]
+  workDays                 WorkDay[]
+  events                   EmploymentEvent[]
+  arcaTasks                ARCATask[]
+  arcaDocuments            ARCADocument[]
+  payments                 Payment[]
+  reconciliations          Reconciliation[]
+
+  @@unique([employmentRelationshipId, year, month, periodType])
+  @@index([status])
+  @@map("payroll_period")
+}
+
+/// Versión de liquidación. Una rectificativa crea la versión n+1 y referencia a la
+/// anterior; la anterior no se toca (RN-06, LIQ-13, INV-PAY-03).
+model PayrollVersion {
+  id                   String              @id @default(uuid()) @db.Uuid
+  payrollPeriodId      String              @db.Uuid
+  versionNumber        Int
+  supersedesVersionId  String?             @db.Uuid
+  rectificationReason  String?
+  isCurrent            Boolean             @default(true)
+
+  approvedAt           DateTime?
+  approvedByUserId     String?             @db.Uuid
+
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+  createdByUserId      String?             @db.Uuid
+  version              Int                 @default(0)
+
+  payrollPeriod        PayrollPeriod       @relation(fields: [payrollPeriodId], references: [id])
+  supersedes           PayrollVersion?     @relation("PayrollVersionChain", fields: [supersedesVersionId], references: [id])
+  supersededBy         PayrollVersion[]    @relation("PayrollVersionChain")
+  calculation          PayrollCalculation?
+  reviews              ProfessionalReview[]
+  arcaDocuments        ARCADocument[]
+  payments             Payment[]
+  reconciliations      Reconciliation[]
+
+  @@unique([payrollPeriodId, versionNumber])
+  @@index([payrollPeriodId, isCurrent])
+  @@map("payroll_version")
+}
+
+/// Resultado del motor para una versión. Persiste la traza completa (LIQ-14).
+model PayrollCalculation {
+  id                        String                  @id @default(uuid()) @db.Uuid
+  payrollVersionId          String                  @unique @db.Uuid
+  payrollParameterVersionId String                  @db.Uuid
+  engineVersion             String
+
+  grossEstimate             Decimal                 @db.Decimal(18, 4)
+  deductionsEstimate        Decimal                 @db.Decimal(18, 4)
+  netEstimate               Decimal                 @db.Decimal(18, 4)
+  currency                  String                  @default("ARS")
+
+  /// `true` si se usaron fixtures. Se propaga a la UI para no presentarlo como oficial.
+  usedFixtureParameters     Boolean                 @default(true)
+
+  warnings                  Json
+  blockingErrors            Json
+  trace                     Json
+  estimatedObligations      Json
+
+  calculatedAt              DateTime                @default(now())
+  calculatedByUserId        String?                 @db.Uuid
+  version                   Int                     @default(0)
+
+  payrollVersion            PayrollVersion          @relation(fields: [payrollVersionId], references: [id])
+  parameterVersion          PayrollParameterVersion @relation(fields: [payrollParameterVersionId], references: [id])
+  lineItems                 PayrollLineItem[]
+
+  @@index([payrollParameterVersionId])
+  @@map("payroll_calculation")
+}
+
+enum ConceptSign {
+  CREDIT
+  DEBIT
+  INFORMATIONAL
+}
+
+model PayrollLineItem {
+  id                   String             @id @default(uuid()) @db.Uuid
+  payrollCalculationId String             @db.Uuid
+  ordinal              Int
+
+  code                 String
+  label                String
+  sign                 ConceptSign
+  calculationBase      Decimal            @db.Decimal(18, 4)
+  quantity             Decimal?           @db.Decimal(18, 4)
+  rate                 String?
+  amount               Decimal            @db.Decimal(18, 4)
+
+  formulaId            String
+  formulaExplanation   String
+  parameterRef         String?
+
+  createdAt            DateTime           @default(now())
+
+  calculation          PayrollCalculation @relation(fields: [payrollCalculationId], references: [id])
+
+  @@unique([payrollCalculationId, ordinal])
+  @@index([code])
+  @@map("payroll_line_item")
+}
+
+enum ProfessionalReviewOutcome {
+  APPROVED
+  OBSERVED
+  INFORMATION_REQUESTED
+}
+
+/// Revisión profesional. Registra profesional, matrícula, fecha y observaciones (CON-06).
+model ProfessionalReview {
+  id                       String                    @id @default(uuid()) @db.Uuid
+  payrollVersionId         String                    @db.Uuid
+  professionalAssignmentId String                    @db.Uuid
+  outcome                  ProfessionalReviewOutcome
+  /// Matrícula al momento de la revisión: la trazabilidad profesional no puede
+  /// depender de un dato que después cambie.
+  licenseNumberSnapshot    String
+  jurisdictionSnapshot     String
+  observations             Json
+  /// Notas privadas del profesional, no visibles al cliente (CON-09).
+  privateNotes             String?
+  sharedNotes              String?
+  reviewedAt               DateTime                  @default(now())
+  reviewedByUserId         String                    @db.Uuid
+
+  createdAt                DateTime                  @default(now())
+  version                  Int                       @default(0)
+
+  payrollVersion           PayrollVersion            @relation(fields: [payrollVersionId], references: [id])
+  assignment               ProfessionalAssignment    @relation(fields: [professionalAssignmentId], references: [id])
+
+  @@index([payrollVersionId])
+  @@map("professional_review")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  ARCA
+// ═══════════════════════════════════════════════════════════════════════════
+
+enum ARCATaskType {
+  RELATIONSHIP_REGISTRATION
+  RECEIPT_ISSUANCE
+  CONTRIBUTION_PAYMENT
+  RECTIFICATION
+}
+
+enum ARCATaskStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  OBSERVED
+  OVERDUE
+}
+
+/// Tarea del flujo asistido. La plataforma no opera ARCA: administra la tarea,
+/// el checklist, los valores a informar y el enlace oficial (ARC-01..ARC-04).
+model ARCATask {
+  id                       String                 @id @default(uuid()) @db.Uuid
+  employmentRelationshipId String                 @db.Uuid
+  payrollPeriodId          String?                @db.Uuid
+  type                     ARCATaskType
+  status                   ARCATaskStatus         @default(PENDING)
+  /// Quién ejecuta: la familia, o el contador si el servicio es delegable (ARC-10).
+  assigneeRole             PlatformRole
+  assigneeUserId           String?                @db.Uuid
+  dueDate                  DateTime               @db.Date
+
+  /// Valores calculados que la familia transcribe en el formulario oficial (ARC-04).
+  preparedValues           Json
+  /// Clave del enlace en el catálogo de contenido, no una URL fija (ADM-07).
+  officialLinkKey          String
+
+  completedAt              DateTime?
+  completedByUserId        String?                @db.Uuid
+  observationNote          String?
+
+  createdAt                DateTime               @default(now())
+  updatedAt                DateTime               @updatedAt
+  createdByUserId          String?                @db.Uuid
+  version                  Int                    @default(0)
+
+  relationship             EmploymentRelationship @relation(fields: [employmentRelationshipId], references: [id])
+  payrollPeriod            PayrollPeriod?         @relation(fields: [payrollPeriodId], references: [id])
+  checklistItems           ARCAChecklistItem[]
+
+  @@index([status, dueDate])
+  @@index([assigneeUserId, status])
+  @@map("arca_task")
+}
+
+model ARCAChecklistItem {
+  id                String    @id @default(uuid()) @db.Uuid
+  arcaTaskId        String    @db.Uuid
+  ordinal           Int
+  label             String
+  helpText          String
+  completedAt       DateTime?
+  completedByUserId String?   @db.Uuid
+
+  createdAt         DateTime  @default(now())
+
+  task              ARCATask  @relation(fields: [arcaTaskId], references: [id], onDelete: Cascade)
+
+  @@unique([arcaTaskId, ordinal])
+  @@map("arca_checklist_item")
+}
+
+enum ARCADocumentKind {
+  OFFICIAL_RECEIPT
+  CONTRIBUTION_PROOF
+  ART_PROOF
+  REGISTRATION_PROOF
+  OTHER
+}
+
+enum ARCAValidationStatus {
+  PENDING
+  VALID
+  INVALID
+  UNREADABLE
+}
+
+/// Documento oficial importado. Nunca generado por la plataforma (principio 7).
+model ARCADocument {
+  id                       String                 @id @default(uuid()) @db.Uuid
+  employmentRelationshipId String                 @db.Uuid
+  payrollPeriodId          String?                @db.Uuid
+  payrollVersionId         String?                @db.Uuid
+  documentId               String                 @db.Uuid
+  kind                     ARCADocumentKind
+  sha256                   String
+
+  /// Metadatos que se pudieron leer del PDF. Si no se pudo, queda UNREADABLE:
+  /// nunca se inventa un dato (ARC-05, ARC-06).
+  extractedMetadata        Json?
+  qrPayload                String?
+  qrVerifiedAt             DateTime?
+  validationStatus         ARCAValidationStatus   @default(PENDING)
+  validationDetails        Json?
+
+  importedAt               DateTime               @default(now())
+  importedByUserId         String                 @db.Uuid
+
+  createdAt                DateTime               @default(now())
+  updatedAt                DateTime               @updatedAt
+  version                  Int                    @default(0)
+
+  relationship             EmploymentRelationship @relation(fields: [employmentRelationshipId], references: [id])
+  payrollPeriod            PayrollPeriod?         @relation(fields: [payrollPeriodId], references: [id])
+  payrollVersion           PayrollVersion?        @relation(fields: [payrollVersionId], references: [id])
+  document                 Document               @relation(fields: [documentId], references: [id])
+  comparisons              ReceiptComparison[]
+
+  @@index([payrollPeriodId, kind])
+  @@map("arca_document")
+}
+
+enum ARCADelegationStatus {
+  PENDING
+  ACTIVE
+  REVOKED
+  EXPIRED
+}
+
+/// Estado de la delegación de servicios en ARCA.
+///
+/// Registra QUÉ se delegó y CUÁNDO, nunca CÓMO acceder: no hay campo para clave
+/// fiscal, cookies ni tokens de sesión de ARCA (ARC-09, CON-04, SEG-06).
+model ARCADelegation {
+  id                       String                 @id @default(uuid()) @db.Uuid
+  employmentRelationshipId String                 @db.Uuid
+  accountantId             String                 @db.Uuid
+  serviceName              String
+  /// Últimos dígitos del CUIL, para identificar sin exponer el documento completo.
+  representedCuilLast4     String
+  authorizedCuilLast4      String
+  status                   ARCADelegationStatus   @default(PENDING)
+  grantedAt                DateTime?
+  validUntil               DateTime?              @db.Date
+  revokedAt                DateTime?
+  revokedReason            String?
+  /// Constancia que el usuario adjunta como evidencia del trámite.
+  evidenceDocumentId       String?                @db.Uuid
+
+  createdAt                DateTime               @default(now())
+  updatedAt                DateTime               @updatedAt
+  createdByUserId          String?                @db.Uuid
+  version                  Int                    @default(0)
+
+  relationship             EmploymentRelationship @relation(fields: [employmentRelationshipId], references: [id])
+  accountant               Accountant             @relation(fields: [accountantId], references: [id])
+
+  @@index([status])
+  @@map("arca_delegation")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  PAGOS Y CONCILIACIÓN
+// ═══════════════════════════════════════════════════════════════════════════
+
+enum PaymentStatus {
+  PENDING
+  REGISTERED
+  CONFIRMED
+  FAILED
+  CANCELLED
+}
+
+enum PaymentMethod {
+  MANUAL_TRANSFER
+  PSP_INITIATED
+}
+
+/// Pago del sueldo: transferencia DIRECTA de la familia a la trabajadora.
+///
+/// No existe una cuenta de plataforma en este modelo. El destino es siempre una
+/// WorkerBankAccount (principios 3 y 4, PAG-02, INV-PAGO-01).
+model Payment {
+  id                       String                 @id @default(uuid()) @db.Uuid
+  employmentRelationshipId String                 @db.Uuid
+  payrollPeriodId          String                 @db.Uuid
+  payrollVersionId         String                 @db.Uuid
+  workerBankAccountId      String                 @db.Uuid
+
+  status                   PaymentStatus          @default(PENDING)
+  method                   PaymentMethod          @default(MANUAL_TRANSFER)
+  amount                   Decimal                @db.Decimal(18, 4)
+  currency                 String                 @default("ARS")
+  paidAt                   DateTime?
+  externalReference        String?
+  proofDocumentId          String?                @db.Uuid
+
+  /// Idempotencia: un reintento no crea un segundo pago (PAG-07, INV-PAGO-02).
+  idempotencyKey           String
+
+  registeredByUserId       String                 @db.Uuid
+  confirmedByWorkerAt      DateTime?
+  cancelledAt              DateTime?
+  cancelledReason          String?
+
+  createdAt                DateTime               @default(now())
+  updatedAt                DateTime               @updatedAt
+  createdByUserId          String?                @db.Uuid
+  version                  Int                    @default(0)
+
+  relationship             EmploymentRelationship @relation(fields: [employmentRelationshipId], references: [id])
+  payrollPeriod            PayrollPeriod          @relation(fields: [payrollPeriodId], references: [id])
+  payrollVersion           PayrollVersion         @relation(fields: [payrollVersionId], references: [id])
+  workerBankAccount        WorkerBankAccount      @relation(fields: [workerBankAccountId], references: [id])
+  reconciliations          Reconciliation[]
+
+  @@unique([employmentRelationshipId, idempotencyKey])
+  @@index([payrollPeriodId, status])
+  @@map("payment")
+}
+
+enum ReconciliationStatus {
+  OPEN
+  RESOLVED
+  BLOCKED
+}
+
+enum ReceiptDifferenceClass {
+  NONE
+  ROUNDING
+  CONCEPT_MISMATCH
+  AMOUNT_MISMATCH
+  PERIOD_MISMATCH
+  PARTY_MISMATCH
+  UNREADABLE
+}
+
+/// Conciliación del período: preliquidación vs. recibo oficial vs. pago (PAG-06).
+model Reconciliation {
+  id                String               @id @default(uuid()) @db.Uuid
+  payrollPeriodId   String               @db.Uuid
+  payrollVersionId  String               @db.Uuid
+  paymentId         String?              @db.Uuid
+  status            ReconciliationStatus @default(OPEN)
+  /// El período no se cierra con diferencias bloqueantes abiertas (INV-ARCA-03).
+  hasBlockingDifferences Boolean         @default(false)
+  resolvedAt        DateTime?
+  resolvedByUserId  String?              @db.Uuid
+  resolutionNote    String?
+
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+  createdByUserId   String?              @db.Uuid
+  version           Int                  @default(0)
+
+  payrollPeriod     PayrollPeriod        @relation(fields: [payrollPeriodId], references: [id])
+  payrollVersion    PayrollVersion       @relation(fields: [payrollVersionId], references: [id])
+  payment           Payment?             @relation(fields: [paymentId], references: [id])
+  comparisons       ReceiptComparison[]
+
+  @@index([payrollPeriodId, status])
+  @@map("reconciliation")
+}
+
+model ReceiptComparison {
+  id               String              @id @default(uuid()) @db.Uuid
+  reconciliationId String              @db.Uuid
+  arcaDocumentId   String              @db.Uuid
+  /// Lista de ReceiptDifference: clase, concepto, esperado, encontrado, delta.
+  differences      Json
+  blocking         Boolean             @default(false)
+  comparedAt       DateTime            @default(now())
+
+  createdAt        DateTime            @default(now())
+  version          Int                 @default(0)
+
+  reconciliation   Reconciliation      @relation(fields: [reconciliationId], references: [id])
+  arcaDocument     ARCADocument        @relation(fields: [arcaDocumentId], references: [id])
+
+  @@index([reconciliationId])
+  @@map("receipt_comparison")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  DOCUMENTOS
+// ═══════════════════════════════════════════════════════════════════════════
+
+enum DocumentScanStatus {
+  PENDING
+  CLEAN
+  INFECTED
+  FAILED
+}
+
+enum DocumentKind {
+  IDENTITY
+  AGREEMENT
+  OFFICIAL_RECEIPT
+  PAYMENT_PROOF
+  CONTRIBUTION_PROOF
+  ENGAGEMENT_LETTER
+  DELEGATION_EVIDENCE
+  LEAVE_SUPPORT
+  OTHER
+}
+
+/// Metadatos del archivo. El contenido vive en object storage privado (14.1).
+model Document {
+  id                       String                  @id @default(uuid()) @db.Uuid
+  employmentRelationshipId String?                 @db.Uuid
+  ownerUserId              String                  @db.Uuid
+  kind                     DocumentKind
+  objectKey                String                  @unique
+  filename                 String
+  /// Tipo detectado por contenido, no por extensión (docs/security-model.md §8).
+  detectedContentType      String
+  sizeBytes                Int
+  sha256                   String
+  scanStatus               DocumentScanStatus      @default(PENDING)
+  scanDetails              String?
+  /// Plazo de conservación. Pendiente de definición legal (OD-10).
+  retentionPolicy          String                  @default("PENDING_LEGAL_DEFINITION")
+
+  createdAt                DateTime                @default(now())
+  updatedAt                DateTime                @updatedAt
+  createdByUserId          String?                 @db.Uuid
+  version                  Int                     @default(0)
+
+  relationship             EmploymentRelationship? @relation(fields: [employmentRelationshipId], references: [id])
+  arcaDocuments            ARCADocument[]
+  accessLogs               DocumentAccessLog[]
+
+  @@index([employmentRelationshipId, kind])
+  @@index([scanStatus])
+  @@map("document")
+}
+
+/// Auditoría de descarga (docs/security-model.md §6, fila 9).
+model DocumentAccessLog {
+  id            String   @id @default(uuid()) @db.Uuid
+  documentId    String   @db.Uuid
+  userId        String   @db.Uuid
+  action        String
+  ipAddress     String?
+  userAgent     String?
+  correlationId String?
+  occurredAt    DateTime @default(now())
+
+  document      Document @relation(fields: [documentId], references: [id])
+
+  @@index([documentId, occurredAt])
+  @@map("document_access_log")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  NOTIFICACIONES, SUSCRIPCIONES, SOPORTE
+// ═══════════════════════════════════════════════════════════════════════════
+
+enum NotificationChannel {
+  PUSH
+  EMAIL
+  SMS
+  WHATSAPP
+  IN_APP
+}
+
+enum NotificationStatus {
+  QUEUED
+  SENT
+  DELIVERED
+  FAILED
+  READ
+}
+
+model NotificationTemplate {
+  id        String              @id @default(uuid()) @db.Uuid
+  code      String
+  version   String
+  channel   NotificationChannel
+  locale    String              @default("es-AR")
+  subject   String?
+  body      String
+  publishedAt DateTime
+
+  createdAt DateTime            @default(now())
+
+  notifications Notification[]
+
+  @@unique([code, version, channel, locale])
+  @@map("notification_template")
+}
+
+model Notification {
+  id         String               @id @default(uuid()) @db.Uuid
+  userId     String               @db.Uuid
+  templateId String               @db.Uuid
+  channel    NotificationChannel
+  status     NotificationStatus   @default(QUEUED)
+  payload    Json
+  scheduledFor DateTime?
+  sentAt     DateTime?
+  deliveredAt DateTime?
+  readAt     DateTime?
+  failureReason String?
+  /// Deduplicación: NOT-01 exige evitar duplicados.
+  dedupeKey  String
+
+  createdAt  DateTime             @default(now())
+  updatedAt  DateTime             @updatedAt
+  version    Int                  @default(0)
+
+  template   NotificationTemplate @relation(fields: [templateId], references: [id])
+
+  @@unique([userId, dedupeKey])
+  @@index([status, scheduledFor])
+  @@map("notification")
+}
+
+enum SubscriptionStatus {
+  TRIAL
+  ACTIVE
+  PAST_DUE
+  CANCELLED
+}
+
+model Plan {
+  id                        String         @id @default(uuid()) @db.Uuid
+  code                      String         @unique
+  label                     String
+  /// Si el plan incluye revisión profesional obligatoria (OD-20).
+  includesProfessionalReview Boolean       @default(false)
+  maxRelationships          Int?
+  /// Precio en Decimal exacto. Un cambio no altera contratos vigentes (ADM-03).
+  monthlyPrice              Decimal        @db.Decimal(18, 4)
+  currency                  String         @default("ARS")
+  active                    Boolean        @default(true)
+
+  createdAt                 DateTime       @default(now())
+  updatedAt                 DateTime       @updatedAt
+  version                   Int            @default(0)
+
+  subscriptions             Subscription[]
+
+  @@map("plan")
+}
+
+model Subscription {
+  id         String             @id @default(uuid()) @db.Uuid
+  employerId String             @db.Uuid
+  planId     String             @db.Uuid
+  status     SubscriptionStatus @default(TRIAL)
+  /// Precio congelado al contratar: ADM-03 prohíbe alterar retroactivamente.
+  priceSnapshot Decimal         @db.Decimal(18, 4)
+  currency   String             @default("ARS")
+  startedAt  DateTime           @default(now())
+  cancelledAt DateTime?
+  currentPeriodEnd DateTime?
+
+  createdAt  DateTime           @default(now())
+  updatedAt  DateTime           @updatedAt
+  createdByUserId String?       @db.Uuid
+  version    Int                @default(0)
+
+  employer   Employer           @relation(fields: [employerId], references: [id])
+  plan       Plan               @relation(fields: [planId], references: [id])
+
+  @@index([employerId, status])
+  @@map("subscription")
+}
+
+enum SupportTicketStatus {
+  OPEN
+  IN_PROGRESS
+  WAITING_USER
+  ESCALATED
+  RESOLVED
+  CLOSED
+}
+
+enum SupportTicketPriority {
+  LOW
+  NORMAL
+  HIGH
+  CRITICAL
+}
+
+model SupportTicket {
+  id            String                @id @default(uuid()) @db.Uuid
+  reporterUserId String               @db.Uuid
+  assigneeUserId String?              @db.Uuid
+  employmentRelationshipId String?    @db.Uuid
+  category      String
+  priority      SupportTicketPriority @default(NORMAL)
+  status        SupportTicketStatus   @default(OPEN)
+  subject       String
+  body          String
+  /// Casos de privacidad, fraude o seguridad activan protocolo y acceso restringido (SUP-02).
+  isRestricted  Boolean               @default(false)
+  resolvedAt    DateTime?
+  resolutionNote String?
+
+  createdAt     DateTime              @default(now())
+  updatedAt     DateTime              @updatedAt
+  version       Int                   @default(0)
+
+  @@index([status, priority])
+  @@map("support_ticket")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  AUDITORÍA, OUTBOX E IDEMPOTENCIA
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Evento de auditoría. APPEND-ONLY.
+///
+/// La migración revoca UPDATE y DELETE sobre esta tabla al rol de aplicación
+/// (decisión D9, ADM-08, INV-AUD-01). `before`/`after` pasan por el redactor:
+/// no contienen secretos, tokens ni CBU/CVU completo (INV-AUD-02).
+model AuditEvent {
+  id                String       @id @default(uuid()) @db.Uuid
+  occurredAt        DateTime     @default(now())
+
+  actorUserId       String?      @db.Uuid
+  actorRole         PlatformRole
+  /// Acceso administrativo excepcional en nombre de otro usuario (13.1).
+  onBehalfOfUserId  String?      @db.Uuid
+
+  action            String
+  entityType        String
+  entityId          String
+
+  before            Json?
+  after             Json?
+
+  correlationId     String?
+  ipAddress         String?
+  userAgent         String?
+  deviceId          String?
+
+  @@index([entityType, entityId, occurredAt])
+  @@index([actorUserId, occurredAt])
+  @@index([action, occurredAt])
+  @@map("audit_event")
+}
+
+/// Outbox: efectos externos publicados en la misma transacción que el cambio de
+/// negocio, y entregados después por un worker (decisión D9, sección 14.1).
+model OutboxMessage {
+  id            String    @id @default(uuid()) @db.Uuid
+  topic         String
+  payload       Json
+  correlationId String?
+  attempts      Int       @default(0)
+  availableAt   DateTime  @default(now())
+  processedAt   DateTime?
+  lastError     String?
+
+  createdAt     DateTime  @default(now())
+
+  @@index([processedAt, availableAt])
+  @@map("outbox_message")
+}
+
+/// Idempotencia HTTP: guarda el hash de la request y la respuesta emitida, para
+/// que un reintento devuelva lo mismo sin ejecutar de nuevo (PAG-07, decisión D12).
+model IdempotencyRecord {
+  id             String   @id @default(uuid()) @db.Uuid
+  idempotencyKey String
+  scope          String
+  requestHash    String
+  responseStatus Int
+  responseBody   Json
+  createdAt      DateTime @default(now())
+  expiresAt      DateTime
+
+  @@unique([scope, idempotencyKey])
+  @@index([expiresAt])
+  @@map("idempotency_record")
+}
+
+/// Contenido administrable: enlaces oficiales de ARCA, guías, textos legales.
+/// ADM-07: cada contenido tiene propietario, fecha de revisión y fuente. Que el
+/// enlace sea dato y no constante es lo que permite que ARCA cambie una URL sin
+/// que haya que desplegar (ARC-02).
+model ManagedContent {
+  id              String   @id @default(uuid()) @db.Uuid
+  key             String   @unique
+  label           String
+  value           String
+  contentType     String   @default("URL")
+  ownerUserId     String?  @db.Uuid
+  source          String?
+  lastReviewedAt  DateTime?
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  createdByUserId String?  @db.Uuid
+  version         Int      @default(0)
+
+  @@map("managed_content")
+}

@@ -1,0 +1,162 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '22'
+  PNPM_VERSION: '10.33.0'
+
+jobs:
+  # ── Verificación de los principios del encargo ────────────────────────────
+  # Corre primero y sin dependencias pesadas: si alguien introdujo un campo de
+  # clave fiscal o un Float para dinero, conviene saberlo en 30 segundos.
+  guardrails:
+    name: Principios del encargo
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - name: Verificar principios (claves fiscales, scraping, float, custodia)
+        run: node scripts/guardrails.mjs
+
+  quality:
+    name: Lint, typecheck, pruebas y build
+    runs-on: ubuntu-latest
+    needs: guardrails
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: casas
+          POSTGRES_PASSWORD: casas_ci_password
+          POSTGRES_DB: casas
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U casas"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://casas:casas_ci_password@localhost:5432/casas?schema=public
+      SHADOW_DATABASE_URL: postgresql://casas:casas_ci_password@localhost:5432/casas_shadow?schema=public
+      REDIS_URL: redis://localhost:6379
+      NODE_ENV: test
+      API_BASE_URL: http://localhost:3001
+      WEB_BASE_URL: http://localhost:3000
+      CORS_ALLOWED_ORIGINS: http://localhost:3000
+      STORAGE_ENDPOINT: http://localhost:9000
+      STORAGE_REGION: us-east-1
+      STORAGE_BUCKET: casas-documents
+      STORAGE_ACCESS_KEY: ci_access
+      STORAGE_SECRET_KEY: ci_secret
+      # Secretos de CI, generados para el pipeline. No se usan en ningún entorno real.
+      JWT_ACCESS_SECRET: ci-only-access-secret-not-used-anywhere-else
+      JWT_REFRESH_SECRET: ci-only-refresh-secret-not-used-anywhere-else
+      FIELD_ENCRYPTION_KEY: ci-only-field-encryption-key-32-chars
+      FIELD_ENCRYPTION_KEY_ID: ci-key-1
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      # Instalación reproducible: el lockfile manda.
+      - name: Instalar dependencias
+        run: pnpm install --frozen-lockfile
+
+      - name: Generar cliente Prisma
+        run: pnpm db:generate
+
+      - name: Formato
+        run: pnpm format:check
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Pruebas unitarias
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+      # Verificación de migraciones: aplica las migraciones sobre una base limpia
+      # y comprueba que el esquema resultante coincide con schema.prisma. Detecta
+      # una migración olvidada o desincronizada.
+      - name: Crear base shadow
+        run: |
+          PGPASSWORD=casas_ci_password psql -h localhost -U casas -d casas \
+            -c "CREATE DATABASE casas_shadow OWNER casas;"
+
+      - name: Aplicar migraciones
+        run: pnpm --filter @casas/database exec prisma migrate deploy
+
+      - name: Verificar que el esquema coincide con las migraciones
+        run: |
+          pnpm --filter @casas/database exec prisma migrate diff \
+            --from-url "$DATABASE_URL" \
+            --to-schema-datamodel prisma/schema.prisma \
+            --exit-code \
+          && echo "El esquema coincide con las migraciones." \
+          || (echo "::error::schema.prisma tiene cambios sin migración. Ejecutá 'pnpm db:migrate'." && exit 1)
+
+      - name: Seeds de demostración
+        run: pnpm db:seed
+
+      - name: Pruebas de integración
+        run: pnpm test:integration
+
+  dependencies:
+    name: Escaneo de dependencias
+    runs-on: ubuntu-latest
+    needs: guardrails
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Instalar dependencias
+        run: pnpm install --frozen-lockfile
+
+      # Falla ante vulnerabilidades altas o críticas (docs/security-model.md §9).
+      - name: Auditoría de dependencias
+        run: pnpm audit --audit-level high

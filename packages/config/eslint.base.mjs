@@ -68,7 +68,14 @@ export const pureDomain = tseslint.config({
               '(ADR 0001, decisión D3). Recibí los datos como argumento.',
           },
           {
-            group: ['node:fs', 'node:fs/*', 'node:http', 'node:https', 'node:net', 'node:child_process'],
+            group: [
+              'node:fs',
+              'node:fs/*',
+              'node:http',
+              'node:https',
+              'node:net',
+              'node:child_process',
+            ],
             message: 'Un paquete de dominio puro no hace IO (ADR 0001, decisión D3).',
           },
         ],

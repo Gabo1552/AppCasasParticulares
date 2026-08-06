@@ -29,6 +29,18 @@
     "typescript": "^5.7.2"
   },
   "pnpm": {
-    "onlyBuiltDependencies": ["esbuild", "@prisma/client", "prisma", "@prisma/engines"]
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "@prisma/client",
+      "prisma",
+      "@prisma/engines",
+      "@nestjs/core",
+      "sharp",
+      "msgpackr-extract"
+    ],
+    "overrides": {
+      "@types/react": "19.2.18",
+      "@types/react-dom": "19.2.4"
+    }
   }
 }

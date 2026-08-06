@@ -11,12 +11,7 @@
 
 export { calculatePayroll, completedYearsBetween } from './engine';
 
-export {
-  ConceptCode,
-  FormulaId,
-  WarningCode,
-  BlockingErrorCode,
-} from './concepts';
+export { ConceptCode, FormulaId, WarningCode, BlockingErrorCode } from './concepts';
 
 export {
   FIXTURE_SOURCE_PREFIX,

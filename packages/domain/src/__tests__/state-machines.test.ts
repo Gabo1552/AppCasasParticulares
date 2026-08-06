@@ -16,7 +16,7 @@ import {
 
 describe('Máquina de estados de la relación laboral', () => {
   it('recorre el camino feliz de alta', () => {
-    let state: typeof R[keyof typeof R] = R.DRAFT;
+    let state: (typeof R)[keyof typeof R] = R.DRAFT;
 
     state = relationship.transition(state, R.PENDING_WORKER_ACCEPTANCE, {
       actorRole: PlatformRole.FAMILY_EMPLOYER,
@@ -63,10 +63,14 @@ describe('Máquina de estados de la relación laboral', () => {
   });
 
   it('sólo la trabajadora puede aceptar la vinculación', () => {
-    const result = relationship.canTransition(R.PENDING_WORKER_ACCEPTANCE, R.PENDING_CONFIGURATION, {
-      actorRole: PlatformRole.FAMILY_EMPLOYER,
-      payload: { hasWorkerAcceptance: true },
-    });
+    const result = relationship.canTransition(
+      R.PENDING_WORKER_ACCEPTANCE,
+      R.PENDING_CONFIGURATION,
+      {
+        actorRole: PlatformRole.FAMILY_EMPLOYER,
+        payload: { hasWorkerAcceptance: true },
+      },
+    );
     expect(result.allowed).toBe(false);
   });
 
@@ -119,7 +123,7 @@ describe('Máquina de estados del período de liquidación', () => {
   const employer = { actorRole: PlatformRole.FAMILY_EMPLOYER } as const;
 
   it('recorre el ciclo mensual completo hasta CLOSED', () => {
-    let state: typeof P[keyof typeof P] = P.OPEN;
+    let state: (typeof P)[keyof typeof P] = P.OPEN;
 
     state = period.transition(state, P.PENDING_ATTENDANCE_APPROVAL, employer);
     state = period.transition(state, P.READY_FOR_CALCULATION, {
@@ -242,16 +246,16 @@ describe('Máquina de estados del período de liquidación', () => {
 
   it('la trabajadora no puede mover el período', () => {
     for (const target of period.allowedTargets(P.OPEN)) {
-      expect(
-        period.canTransition(P.OPEN, target, { actorRole: PlatformRole.WORKER }).allowed,
-      ).toBe(false);
+      expect(period.canTransition(P.OPEN, target, { actorRole: PlatformRole.WORKER }).allowed).toBe(
+        false,
+      );
     }
   });
 });
 
 describe('Máquina de estados del fichaje', () => {
   it('sincroniza un fichaje offline y llega a aprobado', () => {
-    let state: typeof T[keyof typeof T] = T.PENDING_SYNC;
+    let state: (typeof T)[keyof typeof T] = T.PENDING_SYNC;
 
     state = timeEntry.transition(state, T.RECORDED, { actorRole: PlatformRole.SYSTEM });
     state = timeEntry.transition(state, T.PENDING_APPROVAL, { actorRole: PlatformRole.SYSTEM });

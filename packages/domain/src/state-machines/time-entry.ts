@@ -50,9 +50,7 @@ function payloadOf(context: {
   return (context.payload ?? {}) as TimeEntryTransitionPayload;
 }
 
-function requireReason(context: {
-  payload?: Readonly<Record<string, unknown>>;
-}): true | string {
+function requireReason(context: { payload?: Readonly<Record<string, unknown>> }): true | string {
   const reason = payloadOf(context).reason;
   return typeof reason === 'string' && reason.trim().length > 0
     ? true
@@ -63,9 +61,7 @@ function requireReason(context: {
  * El período bloqueado detiene cualquier cambio de asistencia (INV-TIME-05).
  * Reabrirlo es una operación auditada, no un efecto lateral de editar un fichaje.
  */
-function periodNotLocked(context: {
-  payload?: Readonly<Record<string, unknown>>;
-}): true | string {
+function periodNotLocked(context: { payload?: Readonly<Record<string, unknown>> }): true | string {
   return payloadOf(context).periodLocked === true
     ? 'el período está bloqueado; modificar la asistencia exige una reapertura auditada (FIC-07)'
     : true;
@@ -132,7 +128,8 @@ const transitions: readonly TransitionDefinition<TimeEntryStatus>[] = [
     from: S.DISPUTED,
     to: S.APPROVED,
     allowedRoles: [PlatformRole.FAMILY_EMPLOYER],
-    description: 'La familia rechaza la objeción; el fichaje original queda aprobado y la objeción registrada',
+    description:
+      'La familia rechaza la objeción; el fichaje original queda aprobado y la objeción registrada',
     guard: (context) => {
       const locked = periodNotLocked(context);
       if (locked !== true) return locked;
@@ -146,8 +143,7 @@ const transitions: readonly TransitionDefinition<TimeEntryStatus>[] = [
  * edita el fichaje: crea uno nuevo con `correctsTimeEntryId` apuntando al original,
  * que queda archivado como evidencia (FIC-06: "la corrección nunca borra el original").
  */
-export const timeEntryStateMachine = new StateMachine<TimeEntryStatus>(
-  'TimeEntry',
-  transitions,
-  [S.CORRECTED, S.REJECTED],
-);
+export const timeEntryStateMachine = new StateMachine<TimeEntryStatus>('TimeEntry', transitions, [
+  S.CORRECTED,
+  S.REJECTED,
+]);

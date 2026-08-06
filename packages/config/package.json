@@ -3,7 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "main": "index.js",
-  "files": ["tsconfig.base.json", "tsconfig.lib.json", "eslint.base.mjs", "vitest.base.ts"],
+  "files": [
+    "tsconfig.base.json",
+    "tsconfig.lib.json",
+    "eslint.base.mjs",
+    "vitest.base.ts"
+  ],
   "scripts": {
     "lint": "echo \"@casas/config: sin fuentes que lintear\"",
     "typecheck": "echo \"@casas/config: sin fuentes que tipar\"",

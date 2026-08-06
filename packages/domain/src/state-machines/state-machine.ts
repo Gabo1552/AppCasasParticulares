@@ -129,8 +129,7 @@ export class StateMachine<TState extends string> {
   describe(): string {
     return this.transitions
       .map(
-        (t) =>
-          `${t.from} → ${t.to}  [${t.allowedRoles.join('|') || 'SISTEMA'}]  ${t.description}`,
+        (t) => `${t.from} → ${t.to}  [${t.allowedRoles.join('|') || 'SISTEMA'}]  ${t.description}`,
       )
       .join('\n');
   }

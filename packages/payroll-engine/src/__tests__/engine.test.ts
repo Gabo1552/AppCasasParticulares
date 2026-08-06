@@ -645,7 +645,9 @@ describe('13. Idempotencia del cálculo', () => {
   });
 
   it('no muta la entrada', () => {
-    const input = buildInput({ overtime: [{ kindCode: FIXTURE_OVERTIME_KIND.WEEKDAY, minutes: 600 }] });
+    const input = buildInput({
+      overtime: [{ kindCode: FIXTURE_OVERTIME_KIND.WEEKDAY, minutes: 600 }],
+    });
     const snapshot = JSON.stringify(input);
 
     calculatePayroll(input);
@@ -822,9 +824,7 @@ describe('Coherencia de los fixtures', () => {
 
       const result = calculatePayroll(input);
       expect(
-        result.blockingErrors.filter(
-          (e) => e.code === BlockingErrorCode.PARAMETER_VERSION_INVALID,
-        ),
+        result.blockingErrors.filter((e) => e.code === BlockingErrorCode.PARAMETER_VERSION_INVALID),
       ).toHaveLength(0);
     }
   });

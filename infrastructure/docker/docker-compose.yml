@@ -1,0 +1,94 @@
+# Stack de desarrollo local.
+# Levantar con: pnpm docker:up
+#
+# Nada de esto se usa en producción: en producción hay Postgres gestionado con
+# backups probados y un object storage compatible con S3 (docs/architecture.md §13).
+
+name: casas-particulares
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: casas-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: casas
+      POSTGRES_PASSWORD: casas_dev_password
+      POSTGRES_DB: casas
+      # Locale argentino para ordenamiento y formato de fechas.
+      LANG: es_AR.utf8
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/00-init.sql:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U casas -d casas']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: casas-redis
+    restart: unless-stopped
+    command: ['redis-server', '--appendonly', 'yes']
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Object storage privado para documentos. En producción, un proveedor
+  # compatible con S3 (docs/security-model.md §8).
+  minio:
+    image: minio/minio:latest
+    container_name: casas-minio
+    restart: unless-stopped
+    command: ['server', '/data', '--console-address', ':9001']
+    environment:
+      MINIO_ROOT_USER: casas_dev_access
+      MINIO_ROOT_PASSWORD: casas_dev_secret
+    ports:
+      - '9000:9000'
+      - '9001:9001'
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ['CMD', 'mc', 'ready', 'local']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Crea el bucket privado al arrancar. Nunca con política pública.
+  minio-init:
+    image: minio/mc:latest
+    container_name: casas-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 casas_dev_access casas_dev_secret;
+      mc mb --ignore-existing local/casas-documents;
+      mc anonymous set none local/casas-documents;
+      echo 'Bucket casas-documents listo, sin acceso anónimo.';
+      "
+
+  # Captura de correo saliente en desarrollo. Ningún mail sale a Internet.
+  mailhog:
+    image: axllent/mailpit:latest
+    container_name: casas-mailhog
+    restart: unless-stopped
+    ports:
+      - '1025:1025'
+      - '8025:8025'
+
+volumes:
+  postgres-data:
+  redis-data:
+  minio-data:

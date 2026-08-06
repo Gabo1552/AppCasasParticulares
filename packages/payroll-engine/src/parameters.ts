@@ -244,7 +244,9 @@ export function validateParameterVersion(version: PayrollParameterVersion): stri
   }
 
   if (version.categories.length === 0) {
-    problems.push('Una versión de parámetros sin escalas de categoría no permite liquidar (LIQ-03).');
+    problems.push(
+      'Una versión de parámetros sin escalas de categoría no permite liquidar (LIQ-03).',
+    );
   }
 
   const seen = new Set<string>();

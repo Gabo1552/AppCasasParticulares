@@ -1,0 +1,22 @@
+{
+  "expo": {
+    "name": "Casas Particulares",
+    "slug": "casas-particulares",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "scheme": "casasparticulares",
+    "userInterfaceStyle": "automatic",
+    "locales": { "es": "./locales/es.json" },
+    "plugins": ["expo-router"],
+    "ios": {
+      "supportsTablet": false,
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "La ubicación se usa únicamente en el momento del fichaje, para validar que se registra en el domicilio laboral. La aplicación no realiza seguimiento continuo.",
+        "NSCameraUsageDescription": "La cámara se usa para leer el código QR de fichaje."
+      }
+    },
+    "android": {
+      "permissions": ["ACCESS_FINE_LOCATION", "CAMERA"]
+    }
+  }
+}

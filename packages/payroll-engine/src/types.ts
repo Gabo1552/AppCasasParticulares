@@ -36,8 +36,7 @@ export const EmploymentEventType = {
   VACATION: 'VACATION',
   ADVANCE: 'ADVANCE',
 } as const;
-export type EmploymentEventType =
-  (typeof EmploymentEventType)[keyof typeof EmploymentEventType];
+export type EmploymentEventType = (typeof EmploymentEventType)[keyof typeof EmploymentEventType];
 
 export interface EmploymentEventInput {
   readonly id: string;

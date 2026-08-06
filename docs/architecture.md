@@ -109,34 +109,34 @@ Regla verificada en CI: **`payroll-engine` no puede importar `database`, `contra
 
 ## 4. Por qué cada pieza
 
-| Pieza | Motivo |
-| --- | --- |
-| **pnpm** | Workspaces con `node_modules` estricto: un paquete no puede importar lo que no declaró. Eso hace cumplir el grafo de arriba por construcción, no por convención. |
-| **Turborepo** | Cacheo de tareas y grafo de dependencias. En CI, `turbo run lint typecheck test build` sólo reconstruye lo que cambió. |
-| **Next.js** | Web responsive con SSR para el panel del contador (listas grandes, filtros) y autogestión de la familia. |
-| **NestJS** | Módulos con inyección de dependencias: encaja con "monolito modular con límites claros" y hace natural el patrón puerto/adaptador para ARCA y pagos. |
-| **PostgreSQL** | Transaccional, con `NUMERIC` exacto para dinero y row level constraints. Lo recomienda el documento (sección 14). |
-| **Prisma** | Migraciones versionadas y tipado. `Prisma.Decimal` para dinero. |
-| **Redis + BullMQ** | Colas para outbox, notificaciones, scan AV y recordatorios. Locks distribuidos para cierre de período. Claves de idempotencia con TTL. |
-| **Expo / React Native** | Fichaje móvil con soporte offline. En esta etapa sólo estructura mínima. |
-| **Zod** | Un solo esquema para validar en API y en cliente, y para generar OpenAPI. |
-| **Vitest** | Rápido, ESM nativo, ideal para el motor puro. |
-| **Playwright** | E2E de **nuestra** web. Nunca contra ARCA. |
+| Pieza                   | Motivo                                                                                                                                                           |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **pnpm**                | Workspaces con `node_modules` estricto: un paquete no puede importar lo que no declaró. Eso hace cumplir el grafo de arriba por construcción, no por convención. |
+| **Turborepo**           | Cacheo de tareas y grafo de dependencias. En CI, `turbo run lint typecheck test build` sólo reconstruye lo que cambió.                                           |
+| **Next.js**             | Web responsive con SSR para el panel del contador (listas grandes, filtros) y autogestión de la familia.                                                         |
+| **NestJS**              | Módulos con inyección de dependencias: encaja con "monolito modular con límites claros" y hace natural el patrón puerto/adaptador para ARCA y pagos.             |
+| **PostgreSQL**          | Transaccional, con `NUMERIC` exacto para dinero y row level constraints. Lo recomienda el documento (sección 14).                                                |
+| **Prisma**              | Migraciones versionadas y tipado. `Prisma.Decimal` para dinero.                                                                                                  |
+| **Redis + BullMQ**      | Colas para outbox, notificaciones, scan AV y recordatorios. Locks distribuidos para cierre de período. Claves de idempotencia con TTL.                           |
+| **Expo / React Native** | Fichaje móvil con soporte offline. En esta etapa sólo estructura mínima.                                                                                         |
+| **Zod**                 | Un solo esquema para validar en API y en cliente, y para generar OpenAPI.                                                                                        |
+| **Vitest**              | Rápido, ESM nativo, ideal para el motor puro.                                                                                                                    |
+| **Playwright**          | E2E de **nuestra** web. Nunca contra ARCA.                                                                                                                       |
 
 ## 5. Módulos del backend
 
 26 módulos, cada uno con su carpeta, su `*.module.ts`, sus servicios de aplicación, sus DTO Zod y sus tests.
 
-| Contexto | Módulos |
-| --- | --- |
-| Identidad y acceso | `identity`, `users`, `audit` |
-| Partes | `employers`, `workers`, `accountants`, `professional-assignments` |
-| Relación laboral | `households`, `employment-relationships`, `work-schedules` |
-| Tiempo y novedades | `time-tracking`, `attendance-corrections`, `employment-events` |
-| Liquidación | `payroll-parameters`, `payroll-periods`, `payroll-calculations`, `payroll-versions` |
-| Cumplimiento | `arca-tasks`, `arca-documents` |
-| Liquidación financiera | `payments`, `reconciliation` |
-| Soporte | `documents`, `notifications`, `subscriptions`, `administration`, `support` |
+| Contexto               | Módulos                                                                             |
+| ---------------------- | ----------------------------------------------------------------------------------- |
+| Identidad y acceso     | `identity`, `users`, `audit`                                                        |
+| Partes                 | `employers`, `workers`, `accountants`, `professional-assignments`                   |
+| Relación laboral       | `households`, `employment-relationships`, `work-schedules`                          |
+| Tiempo y novedades     | `time-tracking`, `attendance-corrections`, `employment-events`                      |
+| Liquidación            | `payroll-parameters`, `payroll-periods`, `payroll-calculations`, `payroll-versions` |
+| Cumplimiento           | `arca-tasks`, `arca-documents`                                                      |
+| Liquidación financiera | `payments`, `reconciliation`                                                        |
+| Soporte                | `documents`, `notifications`, `subscriptions`, `administration`, `support`          |
 
 Marketplace, matching, chat y contratación **no tienen módulo** en esta etapa. Cuando existan, entrarán
 detrás de `FEATURE_MARKETPLACE`, no como stub que aparente funcionar.
@@ -189,14 +189,14 @@ La policy se evalúa **en el backend siempre**, aunque la UI oculte el botón (r
 
 ## 8. Idempotencia y concurrencia
 
-| Escenario | Mecanismo |
-| --- | --- |
-| Fichaje offline reenviado | `clientIdempotencyKey` UUID generado por el cliente, único por relación (INV-TIME-03) |
-| Registro de pago | `Idempotency-Key` HTTP → tabla `IdempotencyRecord` con hash de request y respuesta cacheada |
-| Cierre de período | Lock distribuido en Redis por `payrollPeriodId` + `version` optimista en la fila |
-| Recálculo | Determinista: recalcular no cambia nada si la entrada no cambió |
-| Webhook de PSP (futuro) | Deduplicación por `providerEventId` + verificación de firma |
-| Edición concurrente | Columna `version` (optimistic locking) en toda entidad crítica. Conflicto → HTTP 409 |
+| Escenario                 | Mecanismo                                                                                   |
+| ------------------------- | ------------------------------------------------------------------------------------------- |
+| Fichaje offline reenviado | `clientIdempotencyKey` UUID generado por el cliente, único por relación (INV-TIME-03)       |
+| Registro de pago          | `Idempotency-Key` HTTP → tabla `IdempotencyRecord` con hash de request y respuesta cacheada |
+| Cierre de período         | Lock distribuido en Redis por `payrollPeriodId` + `version` optimista en la fila            |
+| Recálculo                 | Determinista: recalcular no cambia nada si la entrada no cambió                             |
+| Webhook de PSP (futuro)   | Deduplicación por `providerEventId` + verificación de firma                                 |
+| Edición concurrente       | Columna `version` (optimistic locking) en toda entidad crítica. Conflicto → HTTP 409        |
 
 ## 9. Auditoría y outbox
 
@@ -245,46 +245,69 @@ Controles: bucket **nunca público**, MIME validado por contenido (no por extens
 
 Toda la configuración por variables de entorno, validada con Zod al arrancar (fail fast).
 
-| Flag | Valor inicial | Efecto |
-| --- | --- | --- |
-| `FEATURE_ARCA_OFFICIAL_CONNECTOR` | `false` | Si `true`, se resuelve `OfficialARCAConnector`, que hoy lanza `ARCAIntegrationNotEnabledError`. |
-| `FEATURE_MARKETPLACE` | `false` | Reservado. Sin código detrás en esta etapa. |
-| `FEATURE_REAL_PAYMENTS` | `false` | Reservado para el PSP. Hoy sólo `ManualTransferProvider`. |
-| `FEATURE_IDENTITY_VERIFICATION` | `false` | Reservado. Hoy verificación manual interna. |
-| `FEATURE_MFA_ENFORCED` | `false` en dev | MFA obligatorio para `ACCOUNTANT*` y `*_ADMIN`. |
+| Flag                              | Valor inicial  | Efecto                                                                                          |
+| --------------------------------- | -------------- | ----------------------------------------------------------------------------------------------- |
+| `FEATURE_ARCA_OFFICIAL_CONNECTOR` | `false`        | Si `true`, se resuelve `OfficialARCAConnector`, que hoy lanza `ARCAIntegrationNotEnabledError`. |
+| `FEATURE_MARKETPLACE`             | `false`        | Reservado. Sin código detrás en esta etapa.                                                     |
+| `FEATURE_REAL_PAYMENTS`           | `false`        | Reservado para el PSP. Hoy sólo `ManualTransferProvider`.                                       |
+| `FEATURE_IDENTITY_VERIFICATION`   | `false`        | Reservado. Hoy verificación manual interna.                                                     |
+| `FEATURE_MFA_ENFORCED`            | `false` en dev | MFA obligatorio para `ACCOUNTANT*` y `*_ADMIN`.                                                 |
 
 Ninguna funcionalidad futura se simula. Un flag apagado significa que la ruta no existe o devuelve un
 error explícito, no un resultado inventado.
 
 ## 13. Entornos y despliegue
 
-| Entorno | Base | Storage | ARCA | Pagos |
-| --- | --- | --- | --- | --- |
-| local | Postgres en Docker | MinIO | `ManualAssisted` | `ManualTransfer` |
-| ci | Postgres efímero | MinIO efímero | `ManualAssisted` | `ManualTransfer` |
-| staging | Postgres gestionado | S3-compat | `ManualAssisted` | `ManualTransfer` |
-| production | Postgres gestionado + backups probados | S3-compat cifrado | `ManualAssisted` | según OD-05 |
+| Entorno    | Base                                   | Storage           | ARCA             | Pagos            |
+| ---------- | -------------------------------------- | ----------------- | ---------------- | ---------------- |
+| local      | Postgres en Docker                     | MinIO             | `ManualAssisted` | `ManualTransfer` |
+| ci         | Postgres efímero                       | MinIO efímero     | `ManualAssisted` | `ManualTransfer` |
+| staging    | Postgres gestionado                    | S3-compat         | `ManualAssisted` | `ManualTransfer` |
+| production | Postgres gestionado + backups probados | S3-compat cifrado | `ManualAssisted` | según OD-05      |
 
 Homologación y producción de ARCA quedarán **segregadas** (certificados, endpoints y registros) si
 alguna vez se habilita el conector oficial (ARC-12).
 
 ## 14. Estrategia de pruebas
 
-| Nivel | Herramienta | Alcance |
-| --- | --- | --- |
-| Unitario puro | Vitest | `payroll-engine` (escenarios legales), `domain` (máquinas de estado) |
-| Unitario de módulo | Vitest | Servicios con repositorios en doble |
-| Integración | Vitest + Postgres real (docker) | Repositorios, transacciones, auditoría, idempotencia, concurrencia |
-| Contrato | Zod + OpenAPI | El esquema publicado coincide con el validado |
-| E2E web | Playwright | El recorrido vertical completo |
-| Regresión normativa | Vitest + fixtures versionados | Un cambio de parámetro no altera liquidaciones históricas |
+| Nivel               | Herramienta                     | Alcance                                                              |
+| ------------------- | ------------------------------- | -------------------------------------------------------------------- |
+| Unitario puro       | Vitest                          | `payroll-engine` (escenarios legales), `domain` (máquinas de estado) |
+| Unitario de módulo  | Vitest                          | Servicios con repositorios en doble                                  |
+| Integración         | Vitest + Postgres real (docker) | Repositorios, transacciones, auditoría, idempotencia, concurrencia   |
+| Contrato            | Zod + OpenAPI                   | El esquema publicado coincide con el validado                        |
+| E2E web             | Playwright                      | El recorrido vertical completo                                       |
+| Regresión normativa | Vitest + fixtures versionados   | Un cambio de parámetro no altera liquidaciones históricas            |
 
 El motor de liquidación se prueba primero y con más profundidad que el resto: es donde un error tiene
 consecuencia legal y monetaria (métrica "errores críticos = 0").
 
-## 15. Qué queda deliberadamente afuera
+## 15. Notas de instalación
+
+### `pnpm.overrides` de los tipos de React
+
+El manifiesto raíz fija `@types/react` y `@types/react-dom` en una sola versión para todo el
+workspace. El motivo: `styled-jsx`, empaquetado dentro de Next 15, declara `@types/react` en el rango
+de la versión 18. Con el linker aislado de pnpm eso deja **dos copias** de los tipos de React en el
+programa de TypeScript de `apps/web`, y el typecheck falla con un choque entre `ReactNode` de la 18 y
+el de la 19 (`ReactPortal` cambió de forma entre ambas).
+
+El override alinea las dos y el typecheck vuelve a pasar. `apps/mobile` usa React 18 en tiempo de
+ejecución (Expo 52 / React Native 0.76); comparte los tipos de la 19, lo que hoy no genera conflicto
+en su superficie mínima. Si `apps/mobile` crece y el desajuste aparece, la salida es separar los
+programas de TypeScript, no revertir el override.
+
+Como los manifiestos `package.json` no admiten comentarios, la decisión queda registrada acá.
+
+### `pnpm.onlyBuiltDependencies`
+
+pnpm 10 no ejecuta scripts de instalación salvo autorización explícita. La lista incluye únicamente
+los paquetes que necesitan compilar o descargar un binario nativo: `esbuild`, el motor de Prisma,
+`@nestjs/core`, `sharp` y `msgpackr-extract`.
+
+## 16. Qué queda deliberadamente afuera
 
 - Microservicios, service mesh, event sourcing, CQRS. No hay problema que los justifique hoy.
 - GraphQL. La API es REST + OpenAPI, que es lo que el documento pide (NFR-10).
 - Multi-tenancy física. El aislamiento es por permisos de objeto, no por base separada.
-- Kubernetes en esta etapa. Docker Compose para desarrollo; la decisión de producción es OD-14.
+- Kubernetes en esta etapa. Docker Compose para desarrollo; la decisión de producción es OD-16.

@@ -39,7 +39,11 @@ export class MaskedAccount {
   }
 
   /** Reconstruye la máscara desde lo persistido, sin pasar por el número completo. */
-  static fromLast4(kind: BankAccountKind, last4: string, alias: string | null = null): MaskedAccount {
+  static fromLast4(
+    kind: BankAccountKind,
+    last4: string,
+    alias: string | null = null,
+  ): MaskedAccount {
     if (!/^\d{4}$/.test(last4)) {
       throw new InvalidValueError('Los últimos 4 dígitos deben ser exactamente 4 números.', {
         last4Length: last4.length,

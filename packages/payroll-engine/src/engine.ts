@@ -5,7 +5,6 @@ import {
   ParameterVersionStatus,
   RemunerationScheme,
   validateParameterVersion,
-  type PayrollParameterVersion,
 } from './parameters';
 import { TraceBuilder } from './trace';
 import {
@@ -275,7 +274,11 @@ export function calculatePayroll(input: PayrollInput): PayrollResult {
       trace.add(
         'horas-extra',
         `Horas extra de tipo ${kind.code}`,
-        { valorHora: hourlyValue.toString(), multiplicador: kind.multiplier, horas: hours.toFixed(4) },
+        {
+          valorHora: hourlyValue.toString(),
+          multiplicador: kind.multiplier,
+          horas: hours.toFixed(4),
+        },
         amount.toString(),
       );
     }
@@ -310,7 +313,11 @@ export function calculatePayroll(input: PayrollInput): PayrollResult {
     trace.add(
       'feriado',
       'Horas trabajadas en feriado',
-      { valorHora: hourlyValue.toString(), multiplicador: params.holiday.workedMultiplier, horas: hours.toFixed(4) },
+      {
+        valorHora: hourlyValue.toString(),
+        multiplicador: params.holiday.workedMultiplier,
+        horas: hours.toFixed(4),
+      },
       amount.toString(),
     );
   }
@@ -335,7 +342,9 @@ export function calculatePayroll(input: PayrollInput): PayrollResult {
       });
     } else {
       const seniorityBase =
-        params.seniority.basis === 'BASE_PLUS_OVERTIME' ? baseAmount.add(overtimeTotal) : baseAmount;
+        params.seniority.basis === 'BASE_PLUS_OVERTIME'
+          ? baseAmount.add(overtimeTotal)
+          : baseAmount;
       const amount = roundConcept(seniorityBase.applyPercentage(tier.percentage));
 
       lineItems.push({
@@ -371,9 +380,10 @@ export function calculatePayroll(input: PayrollInput): PayrollResult {
 
   if (input.unfavorableZoneCode !== null) {
     const zoneRule = params.unfavorableZone;
-    const zone = zoneRule?.enabled === true
-      ? zoneRule.zones.find((z) => z.code === input.unfavorableZoneCode)
-      : undefined;
+    const zone =
+      zoneRule?.enabled === true
+        ? zoneRule.zones.find((z) => z.code === input.unfavorableZoneCode)
+        : undefined;
 
     if (zone === undefined) {
       warnings.push({
@@ -423,7 +433,11 @@ export function calculatePayroll(input: PayrollInput): PayrollResult {
     trace.add(
       'vacaciones',
       'Días de vacaciones del período',
-      { remuneracion: agreed.toString(), divisor: params.vacation.dailyDivisor, dias: String(vacationDays) },
+      {
+        remuneracion: agreed.toString(),
+        divisor: params.vacation.dailyDivisor,
+        dias: String(vacationDays),
+      },
       amount.toString(),
     );
   }
@@ -489,7 +503,11 @@ export function calculatePayroll(input: PayrollInput): PayrollResult {
     trace.add(
       'ausencias',
       'Descuento por días no trabajados sin goce',
-      { remuneracion: agreed.toString(), divisor: params.absence.dailyDivisor, dias: String(unpaidDays) },
+      {
+        remuneracion: agreed.toString(),
+        divisor: params.absence.dailyDivisor,
+        dias: String(unpaidDays),
+      },
       amount.toString(),
     );
   }

@@ -176,20 +176,21 @@ funcionar es peor que su ausencia: invita a construir sobre algo que no existe.
 
 ## Alternativas consideradas y descartadas
 
-| Alternativa | Por qué no |
-| --- | --- |
-| Microservicios desde el inicio | El documento lo desaconseja. Introduce transacciones distribuidas donde el dominio pide atomicidad. Costo operativo alto para un producto sin validar |
-| Event sourcing para liquidaciones | Aporta auditabilidad que ya se obtiene con versiones inmutables + auditoría append-only, a un costo de complejidad mucho mayor |
-| `float`/`number` para importes | Prohibido por 14.1 y RN-13. Produce errores que sólo aparecen en producción y con dinero real |
-| Parámetros normativos en código | Viola RN-01, RN-14 y ADM-02. Obligaría a desplegar ante cada cambio normativo |
-| Scraping del portal de ARCA | Prohibido por 3.3 y por el principio 6 del encargo |
-| Custodia de salario en cuenta de plataforma | Prohibido por 13.3 y por los principios 3 y 4. Riesgo regulatorio alto y evitable |
-| GraphQL | REST + OpenAPI es lo que pide NFR-10, y encaja mejor con la generación desde Zod |
-| Simular el conector oficial de ARCA con datos falsos | Viola la regla de no simular funcionalidad futura. Un error explícito es información; un dato falso es una trampa |
+| Alternativa                                          | Por qué no                                                                                                                                            |
+| ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Microservicios desde el inicio                       | El documento lo desaconseja. Introduce transacciones distribuidas donde el dominio pide atomicidad. Costo operativo alto para un producto sin validar |
+| Event sourcing para liquidaciones                    | Aporta auditabilidad que ya se obtiene con versiones inmutables + auditoría append-only, a un costo de complejidad mucho mayor                        |
+| `float`/`number` para importes                       | Prohibido por 14.1 y RN-13. Produce errores que sólo aparecen en producción y con dinero real                                                         |
+| Parámetros normativos en código                      | Viola RN-01, RN-14 y ADM-02. Obligaría a desplegar ante cada cambio normativo                                                                         |
+| Scraping del portal de ARCA                          | Prohibido por 3.3 y por el principio 6 del encargo                                                                                                    |
+| Custodia de salario en cuenta de plataforma          | Prohibido por 13.3 y por los principios 3 y 4. Riesgo regulatorio alto y evitable                                                                     |
+| GraphQL                                              | REST + OpenAPI es lo que pide NFR-10, y encaja mejor con la generación desde Zod                                                                      |
+| Simular el conector oficial de ARCA con datos falsos | Viola la regla de no simular funcionalidad futura. Un error explícito es información; un dato falso es una trampa                                     |
 
 ## Consecuencias
 
 **Positivas**
+
 - El motor de liquidación se puede probar exhaustivamente sin infraestructura.
 - Recalcular una liquidación histórica es reproducible por construcción.
 - Los principios legales del encargo son verificables en CI, no promesas del README.
@@ -197,6 +198,7 @@ funcionar es peor que su ausencia: invita a construir sobre algo que no existe.
 - Un cambio normativo es una operación de datos con doble control.
 
 **Negativas y costos aceptados**
+
 - El monorepo tiene una curva de arranque mayor que un repositorio único plano.
 - La disciplina de `Money` y string decimal en JSON obliga a formatear en el cliente y es fácil de
   olvidar; se compensa con reglas de lint.
@@ -208,11 +210,11 @@ funcionar es peor que su ausencia: invita a construir sobre algo que no existe.
 
 Estas decisiones se verifican automáticamente en CI (detalle en `docs/security-model.md` §12):
 
-| Decisión | Control |
-| --- | --- |
-| D3 | `payroll-engine` no importa Prisma, Nest, Next ni IO de `node:` |
-| D4 | Sin `parseFloat`/`Number()`/aritmética nativa en rutas de dinero |
-| D6 | `apps/api` no depende de Puppeteer / Selenium / Playwright |
-| D6, D7 | Los conectores deshabilitados lanzan error controlado; test por operación |
-| D9 | Test de integración: la operación crítica y su `AuditEvent` viven o mueren juntos |
-| Principio 5 | Ningún identificador del árbol contiene patrones de clave fiscal |
+| Decisión    | Control                                                                           |
+| ----------- | --------------------------------------------------------------------------------- |
+| D3          | `payroll-engine` no importa Prisma, Nest, Next ni IO de `node:`                   |
+| D4          | Sin `parseFloat`/`Number()`/aritmética nativa en rutas de dinero                  |
+| D6          | `apps/api` no depende de Puppeteer / Selenium / Playwright                        |
+| D6, D7      | Los conectores deshabilitados lanzan error controlado; test por operación         |
+| D9          | Test de integración: la operación crítica y su `AuditEvent` viven o mueren juntos |
+| Principio 5 | Ningún identificador del árbol contiene patrones de clave fiscal                  |

@@ -21,14 +21,14 @@ del producto. Una eventual API oficial sería una optimización, no un rescate.
 
 ## 2. Lo que la plataforma hace y lo que no
 
-| La plataforma **sí** | La plataforma **no** |
-| --- | --- |
-| Calcula una preliquidación explicada | Emite el recibo de sueldo |
-| Prepara los valores exactos que la familia debe informar | Ingresa esos valores por la familia |
-| Abre ARCA mediante un enlace al dominio oficial | Embebe, imita o proxea el login de ARCA |
-| Registra el estado de una delegación de servicio | Almacena la clave fiscal del usuario |
-| Importa el PDF oficial, lo valida y lo concilia | Genera un PDF que parezca un recibo oficial |
-| Mantiene checklist, vencimientos y evidencia | Automatiza el portal (scraping, robots, ingeniería inversa) |
+| La plataforma **sí**                                     | La plataforma **no**                                        |
+| -------------------------------------------------------- | ----------------------------------------------------------- |
+| Calcula una preliquidación explicada                     | Emite el recibo de sueldo                                   |
+| Prepara los valores exactos que la familia debe informar | Ingresa esos valores por la familia                         |
+| Abre ARCA mediante un enlace al dominio oficial          | Embebe, imita o proxea el login de ARCA                     |
+| Registra el estado de una delegación de servicio         | Almacena la clave fiscal del usuario                        |
+| Importa el PDF oficial, lo valida y lo concilia          | Genera un PDF que parezca un recibo oficial                 |
+| Mantiene checklist, vencimientos y evidencia             | Automatiza el portal (scraping, robots, ingeniería inversa) |
 
 Estas líneas se derivan de los principios 5, 6, 7 y 8 del encargo, y de ARC-03, ARC-04 y SEG-06.
 
@@ -52,13 +52,13 @@ export interface ARCAConnector {
 Los tipos se refinan durante el diseño (el encargo indica `unknown` como punto de partida). La forma
 prevista de cada uno:
 
-| Operación | Entrada | Salida en el conector manual |
-| --- | --- | --- |
-| `getRelationshipStatus` | `{ employmentRelationshipId }` | Estado **declarado** por la familia + fecha de última confirmación + checklist de alta (ARC-02) |
-| `getObligations` | `{ employmentRelationshipId, period }` | Obligaciones derivadas de la preliquidación y del calendario de vencimientos configurado (ARC-01) |
-| `createReceipt` | `{ payrollPeriodId, payrollVersionId }` | **No crea nada.** Devuelve una `ARCATask` con checklist, los valores a informar y el enlace oficial (ARC-04) |
-| `downloadReceipt` | `{ arcaDocumentId }` | URL firmada del PDF **previamente importado** por el usuario. Nunca descarga de ARCA |
-| `validateReceipt` | `{ arcaDocumentId, payrollVersionId }` | Resultado de validación de formato + metadatos + comparación contra la preliquidación (ARC-05..ARC-07) |
+| Operación               | Entrada                                 | Salida en el conector manual                                                                                 |
+| ----------------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `getRelationshipStatus` | `{ employmentRelationshipId }`          | Estado **declarado** por la familia + fecha de última confirmación + checklist de alta (ARC-02)              |
+| `getObligations`        | `{ employmentRelationshipId, period }`  | Obligaciones derivadas de la preliquidación y del calendario de vencimientos configurado (ARC-01)            |
+| `createReceipt`         | `{ payrollPeriodId, payrollVersionId }` | **No crea nada.** Devuelve una `ARCATask` con checklist, los valores a informar y el enlace oficial (ARC-04) |
+| `downloadReceipt`       | `{ arcaDocumentId }`                    | URL firmada del PDF **previamente importado** por el usuario. Nunca descarga de ARCA                         |
+| `validateReceipt`       | `{ arcaDocumentId, payrollVersionId }`  | Resultado de validación de formato + metadatos + comparación contra la preliquidación (ARC-05..ARC-07)       |
 
 `createReceipt` es el nombre que fija el encargo. Su semántica en el conector manual es "**preparar** la
 emisión", no "emitir". El tipo de retorno lo deja explícito: devuelve una tarea, no un documento.
@@ -91,15 +91,15 @@ Activa por defecto. **No realiza ninguna llamada de red hacia ARCA.**
 
 ### Clasificación de diferencias (ARC-07)
 
-| Clase | Ejemplo | Efecto |
-| --- | --- | --- |
-| `NONE` | Coincidencia exacta | Permite conciliar |
-| `ROUNDING` | Diferencia dentro de la tolerancia de redondeo configurada | Se registra, permite conciliar con nota |
-| `CONCEPT_MISMATCH` | Un concepto presente en uno y ausente en el otro | Bloquea |
-| `AMOUNT_MISMATCH` | Mismo concepto, importe distinto fuera de tolerancia | Bloquea |
-| `PERIOD_MISMATCH` | El recibo corresponde a otro período | Bloquea |
-| `PARTY_MISMATCH` | CUIL de empleador o trabajadora no coincide | Bloquea |
-| `UNREADABLE` | El PDF no permite extraer datos | Bloquea; exige carga manual asistida de los valores |
+| Clase              | Ejemplo                                                    | Efecto                                              |
+| ------------------ | ---------------------------------------------------------- | --------------------------------------------------- |
+| `NONE`             | Coincidencia exacta                                        | Permite conciliar                                   |
+| `ROUNDING`         | Diferencia dentro de la tolerancia de redondeo configurada | Se registra, permite conciliar con nota             |
+| `CONCEPT_MISMATCH` | Un concepto presente en uno y ausente en el otro           | Bloquea                                             |
+| `AMOUNT_MISMATCH`  | Mismo concepto, importe distinto fuera de tolerancia       | Bloquea                                             |
+| `PERIOD_MISMATCH`  | El recibo corresponde a otro período                       | Bloquea                                             |
+| `PARTY_MISMATCH`   | CUIL de empleador o trabajadora no coincide                | Bloquea                                             |
+| `UNREADABLE`       | El PDF no permite extraer datos                            | Bloquea; exige carga manual asistida de los valores |
 
 Una diferencia bloqueante se resuelve de dos maneras: corrigiendo la preliquidación (lo que genera una
 rectificativa, RN-06) o registrando una justificación autorizada con evidencia. Ambas quedan auditadas.
@@ -116,11 +116,21 @@ export class OfficialARCAConnector implements ARCAConnector {
     throw new ARCAIntegrationNotEnabledError(operation);
   }
 
-  getRelationshipStatus() { return this.notEnabled('getRelationshipStatus'); }
-  getObligations()        { return this.notEnabled('getObligations'); }
-  createReceipt()         { return this.notEnabled('createReceipt'); }
-  downloadReceipt()       { return this.notEnabled('downloadReceipt'); }
-  validateReceipt()       { return this.notEnabled('validateReceipt'); }
+  getRelationshipStatus() {
+    return this.notEnabled('getRelationshipStatus');
+  }
+  getObligations() {
+    return this.notEnabled('getObligations');
+  }
+  createReceipt() {
+    return this.notEnabled('createReceipt');
+  }
+  downloadReceipt() {
+    return this.notEnabled('downloadReceipt');
+  }
+  validateReceipt() {
+    return this.notEnabled('validateReceipt');
+  }
 }
 ```
 
@@ -226,24 +236,24 @@ ReceiptComparison {
 
 ## 9. Lo que se prueba en esta etapa
 
-| Prueba | Verifica |
-| --- | --- |
-| `ManualAssistedARCAConnector` genera la tarea correcta | `createReceipt` devuelve checklist + valores preparados, no un documento |
-| El conector manual no hace red | Ninguna llamada saliente durante los tests (fetch interceptado) |
-| `OfficialARCAConnector` lanza el error controlado | Las cinco operaciones lanzan `ARCAIntegrationNotEnabledError` |
-| Resolución por feature flag | Con el flag encendido se resuelve el oficial; apagado, el manual |
-| Importación de recibo | MIME real validado, `sha256` calculado, vinculación al período |
-| Comparación | Cada clase de diferencia se detecta y su carácter bloqueante es el esperado |
-| Conciliación bloqueada | No se puede conciliar con diferencias abiertas |
-| Auditoría | Importación y resolución de diferencia generan `AuditEvent` |
+| Prueba                                                 | Verifica                                                                    |
+| ------------------------------------------------------ | --------------------------------------------------------------------------- |
+| `ManualAssistedARCAConnector` genera la tarea correcta | `createReceipt` devuelve checklist + valores preparados, no un documento    |
+| El conector manual no hace red                         | Ninguna llamada saliente durante los tests (fetch interceptado)             |
+| `OfficialARCAConnector` lanza el error controlado      | Las cinco operaciones lanzan `ARCAIntegrationNotEnabledError`               |
+| Resolución por feature flag                            | Con el flag encendido se resuelve el oficial; apagado, el manual            |
+| Importación de recibo                                  | MIME real validado, `sha256` calculado, vinculación al período              |
+| Comparación                                            | Cada clase de diferencia se detecta y su carácter bloqueante es el esperado |
+| Conciliación bloqueada                                 | No se puede conciliar con diferencias abiertas                              |
+| Auditoría                                              | Importación y resolución de diferencia generan `AuditEvent`                 |
 
 ## 10. Riesgos específicos de este módulo
 
-| Riesgo | Mitigación en el diseño |
-| --- | --- |
-| ARCA nunca publica una API aplicable | El camino asistido es completo por sí mismo. No hay funcionalidad que dependa de la API |
-| El servicio no es delegable | ARC-10: el contador prepara y revisa, la familia ejecuta. Mismo modelo de datos |
-| Cambian las URLs del portal | Enlaces como contenido administrable (ADM-07), no constantes de código |
-| Cambia el formato del PDF del recibo | La extracción de metadatos es *best effort*; si falla, `UNREADABLE` y carga manual asistida. Nunca se inventa un dato |
-| Presión por automatizar el portal | Prohibición explícita en este documento, verificada en CI (`no-browser-automation`) |
-| ARCA caído durante el cierre | Fichaje y preliquidación no dependen de ARCA (14.1). La tarea queda pendiente |
+| Riesgo                               | Mitigación en el diseño                                                                                               |
+| ------------------------------------ | --------------------------------------------------------------------------------------------------------------------- |
+| ARCA nunca publica una API aplicable | El camino asistido es completo por sí mismo. No hay funcionalidad que dependa de la API                               |
+| El servicio no es delegable          | ARC-10: el contador prepara y revisa, la familia ejecuta. Mismo modelo de datos                                       |
+| Cambian las URLs del portal          | Enlaces como contenido administrable (ADM-07), no constantes de código                                                |
+| Cambia el formato del PDF del recibo | La extracción de metadatos es _best effort_; si falla, `UNREADABLE` y carga manual asistida. Nunca se inventa un dato |
+| Presión por automatizar el portal    | Prohibición explícita en este documento, verificada en CI (`no-browser-automation`)                                   |
+| ARCA caído durante el cierre         | Fichaje y preliquidación no dependen de ARCA (14.1). La tarea queda pendiente                                         |

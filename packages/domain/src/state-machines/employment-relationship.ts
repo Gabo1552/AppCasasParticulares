@@ -29,7 +29,9 @@ export interface RelationshipTransitionPayload {
 
 const S = EmploymentRelationshipStatus;
 
-function payloadOf(context: { payload?: Readonly<Record<string, unknown>> }): RelationshipTransitionPayload {
+function payloadOf(context: {
+  payload?: Readonly<Record<string, unknown>>;
+}): RelationshipTransitionPayload {
   return (context.payload ?? {}) as RelationshipTransitionPayload;
 }
 

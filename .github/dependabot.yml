@@ -1,0 +1,32 @@
+# Actualización de dependencias (docs/security-model.md §9).
+#
+# Las de seguridad llegan solas y de inmediato; las de rutina se agrupan
+# semanalmente para no generar ruido de PRs.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: '/'
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      dev-dependencies:
+        dependency-type: development
+        update-types: ['minor', 'patch']
+      production-minor-patch:
+        dependency-type: production
+        update-types: ['minor', 'patch']
+    labels: ['dependencias']
+
+  - package-ecosystem: github-actions
+    directory: '/'
+    schedule:
+      interval: monthly
+    labels: ['dependencias', 'ci']
+
+  - package-ecosystem: docker
+    directory: '/infrastructure/docker'
+    schedule:
+      interval: monthly
+    labels: ['dependencias', 'infraestructura']
