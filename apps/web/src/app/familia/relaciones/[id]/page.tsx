@@ -5,7 +5,7 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { useParams } from 'next/navigation';
 import { apiFetch, errorMessage } from '@/lib/api';
 import { PantallaProtegida } from '@/components/pantalla-protegida';
-import { Cargando, Error, Exito } from '@/components/ui';
+import { Cargando, Error, Etiqueta, Exito } from '@/components/ui';
 import {
   FormularioCondiciones,
   condicionesACuerpo,
@@ -18,7 +18,8 @@ import {
   horarioInicial,
   type DatosHorario,
 } from '@/components/formulario-horario';
-import { ResumenRelacion } from '@/components/resumen-relacion';
+import { ResumenRelacion, tonoRelacion } from '@/components/resumen-relacion';
+import { etiquetaRelacion } from '@/lib/format';
 import type { Relationship } from '@/lib/types';
 
 /**
@@ -148,7 +149,15 @@ function Contenido(): ReactNode {
   return (
     <div className="pila">
       <div className="entre">
-        <h1>{relacion.worker?.name ?? 'Relación laboral'}</h1>
+        <div>
+          <h1>{relacion.worker?.name ?? 'Relación laboral'}</h1>
+          {/* El estado se muestra siempre, también mientras se configura: es lo
+              que le dice a la familia si todavía falta algo o ya está enviado. */}
+          <Etiqueta
+            texto={etiquetaRelacion(relacion.status)}
+            tono={tonoRelacion(relacion.status)}
+          />
+        </div>
         <Link className="boton boton--secundario" href="/familia">
           Volver al panel
         </Link>

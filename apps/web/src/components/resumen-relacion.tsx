@@ -7,6 +7,7 @@ import {
   ETIQUETAS_MODALIDAD,
   etiquetaRelacion,
   formatearFecha,
+  formatearFechaCalendario,
   formatearHoras,
   formatearImporte,
   nombreDia,
@@ -72,7 +73,7 @@ export function ResumenRelacion({ relacion }: { relacion: Relationship }): React
             <dl className="datos">
               <div>
                 <dt>Fecha prevista de inicio</dt>
-                <dd>{formatearFecha(conditions.plannedStartDate)}</dd>
+                <dd>{formatearFechaCalendario(conditions.plannedStartDate)}</dd>
               </div>
               <div>
                 <dt>Categoría</dt>

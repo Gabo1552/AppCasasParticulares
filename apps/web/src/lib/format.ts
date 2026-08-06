@@ -13,12 +13,35 @@ export function nombreDia(dayOfWeek: number): string {
   return DIAS[dayOfWeek] ?? '';
 }
 
+/**
+ * Fecha de un instante (cuándo pasó algo), en la zona horaria del navegador.
+ *
+ * Para fechas de calendario usar `formatearFechaCalendario`, no esta.
+ */
 export function formatearFecha(iso: string): string {
   return new Date(iso).toLocaleDateString('es-AR', {
     day: '2-digit',
     month: '2-digit',
     year: 'numeric',
   });
+}
+
+/**
+ * Fecha de calendario: la fecha *es* el dato, no el instante en que ocurrió.
+ *
+ * La fecha de inicio de una relación laboral es el 1 de septiembre, punto — no
+ * un momento en el tiempo que cambie según dónde esté quien mira. La API la
+ * manda como medianoche UTC, y pasarla por `new Date()` en Argentina (GMT-3) la
+ * corre al 31 de agosto. Sobre una fecha de inicio de una relación laboral, un
+ * día de diferencia no es un detalle de formato.
+ *
+ * Por eso se parte el `YYYY-MM-DD` a mano en vez de construir un `Date`: sin
+ * `Date` no hay conversión de zona que pueda correr el día.
+ */
+export function formatearFechaCalendario(iso: string): string {
+  const [anio, mes, dia] = iso.slice(0, 10).split('-');
+  if (anio === undefined || mes === undefined || dia === undefined) return iso;
+  return `${dia}/${mes}/${anio}`;
 }
 
 export function formatearFechaHora(iso: string): string {
