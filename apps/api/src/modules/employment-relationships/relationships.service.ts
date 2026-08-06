@@ -99,31 +99,47 @@ export class RelationshipsService {
         orderBy: { effectiveFrom: 'desc' },
       });
 
-      // REL-05: no se sobrescribe una vigencia; se cierra y se abre otra.
+      const values = {
+        categoryCode: input.categoryCode,
+        liveInMode: input.liveInMode,
+        remunerationScheme: input.remunerationScheme,
+        agreedRemuneration: new Prisma.Decimal(input.agreedRemuneration),
+        currency: 'ARS',
+        weeklyHours: input.weeklyHours,
+        paymentDayOfMonth: input.paymentDayOfMonth ?? null,
+        requiresProfessionalReview: input.requiresProfessionalReview,
+        adminNotes: input.adminNotes ?? null,
+        changeReason: input.changeReason ?? null,
+      };
+
+      /**
+       * Antes de que la trabajadora acepte, las condiciones son un borrador.
+       *
+       * REL-05 exige no sobrescribir una vigencia, pero acá todavía no hay
+       * ninguna: nada rigió nunca. Cerrar una vigencia que nunca empezó dejaría
+       * filas de duración cero y chocaría contra la clave
+       * `(employmentRelationshipId, effectiveFrom)` en cuanto la familia corrija
+       * un monto sin cambiar la fecha de inicio, que es el caso más habitual.
+       *
+       * El versionado real —cerrar y abrir— aplica a condiciones ya aceptadas.
+       * Modificarlas es un cambio de condiciones en una relación vigente, que no
+       * es parte de esta etapa: `saveConditions` lo rechaza más arriba.
+       */
       if (current !== null) {
         await tx.relationshipTerms.update({
           where: { id: current.id },
-          data: { effectiveTo: new Date(input.plannedStartDate) },
+          data: { ...values, effectiveFrom: new Date(input.plannedStartDate) },
+        });
+      } else {
+        await tx.relationshipTerms.create({
+          data: {
+            ...values,
+            employmentRelationshipId: id,
+            effectiveFrom: new Date(input.plannedStartDate),
+            createdByUserId: actor.userId,
+          },
         });
       }
-
-      await tx.relationshipTerms.create({
-        data: {
-          employmentRelationshipId: id,
-          effectiveFrom: new Date(input.plannedStartDate),
-          categoryCode: input.categoryCode,
-          liveInMode: input.liveInMode,
-          remunerationScheme: input.remunerationScheme,
-          agreedRemuneration: new Prisma.Decimal(input.agreedRemuneration),
-          currency: 'ARS',
-          weeklyHours: input.weeklyHours,
-          paymentDayOfMonth: input.paymentDayOfMonth ?? null,
-          requiresProfessionalReview: input.requiresProfessionalReview,
-          adminNotes: input.adminNotes ?? null,
-          changeReason: input.changeReason ?? null,
-          createdByUserId: actor.userId,
-        },
-      });
 
       await tx.employmentRelationship.update({
         where: { id },

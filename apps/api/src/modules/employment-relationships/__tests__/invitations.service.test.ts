@@ -1,11 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AuditService } from '../../../common/audit/audit.service';
 import { TokenService } from '../../../common/crypto/token.service';
-import {
-  ConflictError,
-  ForbiddenError,
-  NotFoundError,
-} from '../../../common/http/app.errors';
+import { ConflictError, ForbiddenError, NotFoundError } from '../../../common/http/app.errors';
 import type { AuthenticatedActor } from '../../../common/auth/auth.types';
 import type { AppConfig } from '../../../config/app-config';
 import type { PrismaService } from '../../../common/prisma/prisma.service';

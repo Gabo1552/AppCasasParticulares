@@ -89,11 +89,7 @@ class FakeTable {
     return this.match(args.where).length;
   }
 
-  async update(args: {
-    where: Row;
-    data: Row;
-    include?: Record<string, unknown>;
-  }): Promise<Row> {
+  async update(args: { where: Row; data: Row; include?: Record<string, unknown> }): Promise<Row> {
     const row = this.match(args.where).at(0);
     if (row === undefined) throw new Error(`fake-prisma: ${this.name} no encontrado para update`);
     applyWrites(row, args.data);

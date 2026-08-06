@@ -58,6 +58,25 @@ export function setSessionCookies(
   return csrfToken;
 }
 
+/**
+ * Reemplaza sólo el access token, dejando la sesión y su refresh intactos.
+ *
+ * Hace falta cuando los roles del usuario cambian dentro de una sesión abierta
+ * —crear el perfil otorga `FAMILY_EMPLOYER` o `WORKER`—: el token vigente se
+ * emitió antes y no los declara, así que sin esto la persona termina el alta y
+ * la operación siguiente le responde 403 hasta que el token expire.
+ */
+export function refreshAccessCookie(
+  response: Response,
+  config: AppConfig,
+  accessToken: string,
+): void {
+  response.cookie(ACCESS_TOKEN_COOKIE, accessToken, {
+    ...baseCookieOptions(config),
+    maxAge: ACCESS_TOKEN_TTL_SECONDS * 1000,
+  });
+}
+
 export function clearSessionCookies(response: Response, config: AppConfig): void {
   const base = baseCookieOptions(config);
   response.clearCookie(ACCESS_TOKEN_COOKIE, base);

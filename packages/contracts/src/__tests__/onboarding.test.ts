@@ -60,7 +60,11 @@ describe('Perfil', () => {
   });
 
   it('no admite datos que no se piden en esta etapa (clave fiscal, CUIL, banco)', () => {
-    for (const extra of [{ claveFiscal: '1234' }, { cuil: '27123456783' }, { cbu: '0'.repeat(22) }]) {
+    for (const extra of [
+      { claveFiscal: '1234' },
+      { cuil: '27123456783' },
+      { cbu: '0'.repeat(22) },
+    ]) {
       expect(() => createProfileSchema.parse({ ...valid, ...extra })).toThrow();
     }
   });
@@ -146,9 +150,7 @@ describe('Condiciones de la relación laboral', () => {
 
   it('acota el día de pago al rango de un mes', () => {
     expect(relationshipConditionsSchema.parse({ ...valid, paymentDayOfMonth: 5 })).toBeDefined();
-    expect(() =>
-      relationshipConditionsSchema.parse({ ...valid, paymentDayOfMonth: 32 }),
-    ).toThrow();
+    expect(() => relationshipConditionsSchema.parse({ ...valid, paymentDayOfMonth: 32 })).toThrow();
   });
 
   it('acota las horas semanales a lo que tiene una semana', () => {

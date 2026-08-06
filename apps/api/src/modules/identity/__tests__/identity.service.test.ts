@@ -161,9 +161,9 @@ describe('IdentityService — código de acceso de un solo uso', () => {
     expect(forKnown).toBe('ok');
     expect(forUnknown).toBe('ok');
     // Ambos correos dejan una fila indistinguible desde afuera.
-    expect(prisma.oneTimeCode.rows.filter((r) => r['destination'] === 'nueva@example.test')).toHaveLength(
-      1,
-    );
+    expect(
+      prisma.oneTimeCode.rows.filter((r) => r['destination'] === 'nueva@example.test'),
+    ).toHaveLength(1);
   });
 
   it('audita el pedido de código sin guardar el código', async () => {
@@ -215,21 +215,15 @@ describe('IdentityService — rotación de refresh tokens', () => {
     const second = await fixture.identity.refresh(first.refreshToken, {});
 
     // El atacante reutiliza el token viejo.
-    await expect(fixture.identity.refresh(first.refreshToken, {})).rejects.toThrow(
-      /uso indebido/,
-    );
+    await expect(fixture.identity.refresh(first.refreshToken, {})).rejects.toThrow(/uso indebido/);
 
     // La sesión legítima también cae: es el precio de no dejar conviviendo a las dos.
-    await expect(fixture.identity.refresh(second.refreshToken, {})).rejects.toThrow(
-      /uso indebido/,
-    );
+    await expect(fixture.identity.refresh(second.refreshToken, {})).rejects.toThrow(/uso indebido/);
     expect(fixture.prisma.auditActions()).toContain('SESSION_REUSE_DETECTED');
   });
 
   it('rechaza un refresh token desconocido sin revelar por qué', async () => {
-    await expect(fixture.identity.refresh('token-inventado', {})).rejects.toThrow(
-      /no es válida/,
-    );
+    await expect(fixture.identity.refresh('token-inventado', {})).rejects.toThrow(/no es válida/);
   });
 
   it('rechaza un refresh token vencido', async () => {

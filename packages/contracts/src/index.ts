@@ -24,9 +24,9 @@ import {
   isoDateTimeSchema,
   localDateSchema,
   moneySchema,
-  moneyValueSchema,
   uuidSchema,
 } from './primitives';
+import type { moneyValueSchema } from './primitives';
 
 /**
  * CUIL argentino. Se valida el formato y el dígito verificador.

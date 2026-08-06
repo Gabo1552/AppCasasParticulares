@@ -45,7 +45,12 @@ enum UserStatus {
 model User {
   id                String     @id @default(uuid()) @db.Uuid
   email             String?    @unique
-  phone             String?    @unique
+  /// Dato de contacto, no identificador: dos personas de la misma familia pueden
+  /// declarar el mismo número. Además, un índice único acá permitiría enumerar
+  /// teléfonos registrados observando qué altas fallan. El ingreso es siempre por
+  /// correo; si en el futuro se agrega ingreso por SMS, hará falta una tabla
+  /// aparte de identificadores verificados.
+  phone             String?
   // Argon2id. Nunca reversible, nunca en logs.
   passwordHash      String?
   emailVerifiedAt   DateTime?

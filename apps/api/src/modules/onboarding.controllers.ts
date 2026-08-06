@@ -3,11 +3,13 @@ import {
   Controller,
   Delete,
   Get,
+  Inject,
   Param,
   ParseUUIDPipe,
   Patch,
   Post,
   Put,
+  Res,
 } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { PlatformRole } from '@casas/database';
@@ -24,8 +26,12 @@ import {
   updateHouseholdSchema,
   updateProfileSchema,
 } from '@casas/contracts';
+import type { Response } from 'express';
 import { Actor, Public, Roles, type AuthenticatedActor } from '../common/auth/auth.types';
+import { refreshAccessCookie } from '../common/auth/cookies';
 import { ZodValidationPipe } from '../common/http/zod-validation.pipe';
+import { APP_CONFIG, type AppConfig } from '../config/app-config';
+import { IdentityService } from './identity/identity.service';
 import { EmployersService, type ProfileView } from './employers/employers.service';
 import { WorkersService } from './workers/workers.service';
 import { HouseholdsService, type HouseholdView } from './households/households.service';
@@ -41,21 +47,41 @@ import {
 } from './employment-relationships/relationships.service';
 import { WorkSchedulesService } from './work-schedules/work-schedules.service';
 
+/**
+ * Perfil recién creado, con el access token que ya declara el rol otorgado.
+ *
+ * Crear el perfil cambia los roles del usuario en medio de una sesión abierta.
+ * El token con el que llegó el request se emitió antes y todavía dice `roles: []`,
+ * así que se emite uno nuevo acá mismo: sin esto, la persona completa el alta y
+ * la pantalla siguiente le responde 403 hasta que el token expire.
+ */
+export interface ProfileCreatedView extends ProfileView {
+  accessToken: string;
+}
+
 // ─── Perfil de familia ───────────────────────────────────────────────────────
 
 @ApiTags('employer-profile')
 @Controller('employer-profile')
 export class EmployerProfileController {
-  constructor(private readonly employers: EmployersService) {}
+  constructor(
+    private readonly employers: EmployersService,
+    private readonly identity: IdentityService,
+    @Inject(APP_CONFIG) private readonly config: AppConfig,
+  ) {}
 
   @Post()
   @ApiOperation({ summary: 'Crea el perfil de familia y otorga el rol FAMILY_EMPLOYER' })
-  create(
+  async create(
     @Actor() actor: AuthenticatedActor,
     @Body(new ZodValidationPipe(createProfileSchema))
     body: Parameters<EmployersService['create']>[1],
-  ): Promise<ProfileView> {
-    return this.employers.create(actor, body);
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<ProfileCreatedView> {
+    const profile = await this.employers.create(actor, body);
+    const accessToken = await this.identity.issueAccessTokenFor(actor.userId, actor.sessionId);
+    refreshAccessCookie(response, this.config, accessToken);
+    return { ...profile, accessToken };
   }
 
   @Get()
@@ -79,15 +105,23 @@ export class EmployerProfileController {
 @ApiTags('worker-profile')
 @Controller('worker-profile')
 export class WorkerProfileController {
-  constructor(private readonly workers: WorkersService) {}
+  constructor(
+    private readonly workers: WorkersService,
+    private readonly identity: IdentityService,
+    @Inject(APP_CONFIG) private readonly config: AppConfig,
+  ) {}
 
   @Post()
   @ApiOperation({ summary: 'Crea el perfil de trabajadora y otorga el rol WORKER' })
-  create(
+  async create(
     @Actor() actor: AuthenticatedActor,
     @Body(new ZodValidationPipe(createProfileSchema)) body: Parameters<WorkersService['create']>[1],
-  ): Promise<ProfileView> {
-    return this.workers.create(actor, body);
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<ProfileCreatedView> {
+    const profile = await this.workers.create(actor, body);
+    const accessToken = await this.identity.issueAccessTokenFor(actor.userId, actor.sessionId);
+    refreshAccessCookie(response, this.config, accessToken);
+    return { ...profile, accessToken };
   }
 
   @Get()

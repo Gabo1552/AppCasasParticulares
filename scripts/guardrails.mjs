@@ -31,18 +31,27 @@ const IGNORED_DIRECTORIES = new Set([
 /**
  * Archivos exentos: son los que *documentan* o *verifican* las reglas.
  *
- * `contracts.test.ts` está exento porque envía `claveFiscal` a propósito, para
- * comprobar que el esquema estricto lo rechaza. Esa prueba es parte de la
- * defensa, no una violación.
+ * Las pruebas que nombran una clave fiscal la envían a propósito, para comprobar
+ * que el esquema estricto la rechaza o que no quedó persistida. Son parte de la
+ * defensa, no una violación: por eso se exime `__tests__`.
+ *
+ * La exención es sólo para esta verificación. Las demás —importes en float,
+ * automatización de navegador, custodia de fondos— siguen aplicando a las
+ * pruebas, porque ahí sí un uso en una prueba señalaría el mismo problema que en
+ * producción.
  */
 const EXEMPT_FILES = new Set([
   'scripts/guardrails.mjs',
   'packages/observability/src/redaction.ts',
   'packages/observability/src/__tests__/redaction.test.ts',
-  'packages/contracts/src/__tests__/contracts.test.ts',
   'packages/config/eslint.base.mjs',
   '.env.example',
 ]);
+
+/** ¿El archivo es una prueba? Se usa para eximir sólo `no-fiscal-credentials`. */
+function isTestFile(file) {
+  return /(__tests__|\.test\.ts|\.spec\.ts)/.test(file);
+}
 
 const failures = [];
 const passed = [];
@@ -92,6 +101,7 @@ check(
     const problems = [];
 
     for (const file of sourceFiles) {
+      if (isTestFile(file)) continue;
       const content = readFileSync(file, 'utf8');
       content.split('\n').forEach((line, index) => {
         // Ignora líneas de comentario: ahí se explica la prohibición.
