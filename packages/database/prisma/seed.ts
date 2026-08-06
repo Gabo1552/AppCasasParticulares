@@ -132,6 +132,8 @@ async function main(): Promise<void> {
     create: {
       id: ID.employer,
       userId: ID.userEmployer,
+      firstName: 'Familia',
+      lastName: 'Demostración (ficticia)',
       legalName: 'Familia Demostración (ficticia)',
       cuilCipher: 'SEED_PLACEHOLDER_NO_CIFRADO_REAL',
       cuilKeyId: 'seed-key',
@@ -148,6 +150,8 @@ async function main(): Promise<void> {
     create: {
       id: ID.worker,
       userId: ID.userWorker,
+      firstName: 'Trabajadora',
+      lastName: 'Demostración (ficticia)',
       legalName: 'Trabajadora Demostración (ficticia)',
       cuilCipher: 'SEED_PLACEHOLDER_NO_CIFRADO_REAL',
       cuilKeyId: 'seed-key',
@@ -215,7 +219,9 @@ async function main(): Promise<void> {
       id: ID.household,
       employerId: ID.employer,
       label: 'Casa (demostración)',
-      addressLine: 'Calle Ficticia 1234',
+      street: 'Calle Ficticia',
+      streetNumber: '1234',
+      country: 'AR',
       city: 'Córdoba',
       province: 'Córdoba',
       postalCode: 'X5000',

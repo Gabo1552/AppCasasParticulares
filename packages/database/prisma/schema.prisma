@@ -191,6 +191,10 @@ enum IdentityVerificationStatus {
 model Employer {
   id                 String                     @id @default(uuid()) @db.Uuid
   userId             String                     @unique @db.Uuid
+  firstName          String
+  lastName           String
+  /// Nombre completo derivado de firstName + lastName. Se conserva porque los
+  /// documentos y comprobantes lo usan como una sola cadena.
   legalName          String
   // CUIL/CUIT cifrado a nivel de aplicación. `cuilLast4` para búsqueda y despliegue.
   cuilCipher         String?
@@ -208,6 +212,7 @@ model Employer {
   user               User                       @relation(fields: [userId], references: [id])
   households         Household[]
   relationships      EmploymentRelationship[]
+  invitations        WorkerInvitation[]
   subscriptions      Subscription[]
 
   @@map("employer")
@@ -216,6 +221,8 @@ model Employer {
 model Worker {
   id                 String                     @id @default(uuid()) @db.Uuid
   userId             String                     @unique @db.Uuid
+  firstName          String
+  lastName           String
   legalName          String
   cuilCipher         String?
   cuilKeyId          String?
@@ -361,12 +368,20 @@ model ProfessionalAssignment {
 model Household {
   id                  String                   @id @default(uuid()) @db.Uuid
   employerId          String                   @db.Uuid
+  /// Alias con el que la familia identifica el domicilio ("Casa", "Depto de mamá").
   label               String
   /// Dirección exacta: visible sólo a usuarios autorizados (PER-02).
-  addressLine         String
+  street              String
+  streetNumber        String
+  floor               String?
+  apartment           String?
   city                String
   province            String
   postalCode          String
+  /// Fijo en Argentina por ahora; el campo existe para no migrar si se amplía.
+  country             String                   @default("AR")
+  accessInstructions  String?
+  isActive            Boolean                  @default(true)
   timezone            String                   @default("America/Argentina/Buenos_Aires")
   /// Código de zona desfavorable si corresponde. El valor lo define el parámetro (OD-18).
   unfavorableZoneCode String?
@@ -383,9 +398,63 @@ model Household {
 
   employer            Employer                 @relation(fields: [employerId], references: [id])
   relationships       EmploymentRelationship[]
+  invitations         WorkerInvitation[]
 
   @@index([employerId, archivedAt])
   @@map("household")
+}
+
+enum WorkerInvitationStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  REVOKED
+  EXPIRED
+}
+
+/// Invitación de una familia a una trabajadora (REL-01).
+///
+/// Entidad propia y no campos dentro de la relación laboral, por dos motivos:
+/// la invitación tiene su propio ciclo (reenviar, revocar, rechazar, vencer) y
+/// **no crea una relación al enviarse**. La relación nace recién cuando la
+/// trabajadora acepta, y nace en PENDING_CONFIGURATION.
+///
+/// Del token sólo se guarda el hash: el valor en claro viaja una única vez, en
+/// el correo, y no queda en la base ni en los logs.
+model WorkerInvitation {
+  id                       String                  @id @default(uuid()) @db.Uuid
+  employerId               String                  @db.Uuid
+  householdId              String                  @db.Uuid
+  /// Correo al que se envió. Se normaliza en minúsculas.
+  workerEmail              String
+  /// Nombre de referencia que la familia escribe. Opcional y sólo informativo.
+  workerName               String?
+  status                   WorkerInvitationStatus  @default(PENDING)
+  tokenHash                String                  @unique
+  expiresAt                DateTime
+  sentAt                   DateTime                @default(now())
+  resentCount              Int                     @default(0)
+  lastResentAt             DateTime?
+  respondedAt              DateTime?
+  /// Usuario de la trabajadora que respondió, cuando existe.
+  respondedByUserId        String?                 @db.Uuid
+  revokedAt                DateTime?
+  revokedReason            String?
+  /// Relación creada al aceptar. Nula mientras la invitación siga pendiente.
+  employmentRelationshipId String?                 @unique @db.Uuid
+
+  createdAt                DateTime                @default(now())
+  updatedAt                DateTime                @updatedAt
+  createdByUserId          String?                 @db.Uuid
+  version                  Int                     @default(0)
+
+  employer                 Employer                @relation(fields: [employerId], references: [id])
+  household                Household               @relation(fields: [householdId], references: [id])
+  relationship             EmploymentRelationship? @relation(fields: [employmentRelationshipId], references: [id])
+
+  @@index([employerId, status])
+  @@index([workerEmail, status])
+  @@map("worker_invitation")
 }
 
 enum EmploymentRelationshipStatus {
@@ -437,6 +506,7 @@ model EmploymentRelationship {
   arcaDelegations   ARCADelegation[]
   payments          Payment[]
   documents         Document[]
+  invitation        WorkerInvitation?
 
   @@index([employerId, status])
   @@index([workerId, status])
@@ -468,6 +538,13 @@ model RelationshipTerms {
   agreedRemuneration       Decimal                @db.Decimal(18, 4)
   currency                 String                 @default("ARS")
   weeklyHours              Int?
+  /// Día habitual de pago dentro del mes (1-31). Es una preferencia operativa,
+  /// no un plazo legal: los plazos los define la norma (OD-03).
+  paymentDayOfMonth        Int?
+  /// Si el plan de la familia incluye revisión profesional del período (OD-20).
+  requiresProfessionalReview Boolean              @default(false)
+  /// Notas internas de la familia. No se comparten con la trabajadora.
+  adminNotes               String?
 
   changeReason             String?
   acceptedByWorkerAt       DateTime?
