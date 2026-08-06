@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { localDateSchema, moneySchema, uuidSchema } from './index';
+import { localDateSchema, moneySchema, uuidSchema } from './primitives';
 
 /**
  * Contratos del recorrido de onboarding (Etapa 3, pasos 1 a 6).
