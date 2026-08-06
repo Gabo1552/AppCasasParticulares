@@ -144,16 +144,28 @@ casos de uso llegan en la próxima etapa (ver [`docs/implementation-roadmap.md`]
 
 ### Lo que ya funciona y está probado
 
-| Pieza                                                                         | Estado            |
-| ----------------------------------------------------------------------------- | ----------------- |
-| `Money` con decimal exacto, `Minutes`, `DateRange`, `MaskedAccount`           | 65 pruebas        |
-| Máquinas de estado de relación, período y fichaje                             | incluidas arriba  |
-| Motor de liquidación con los 13 escenarios del encargo                        | 56 pruebas        |
-| Redacción de datos sensibles en logs                                          | 11 pruebas        |
-| Esquemas Zod compartidos                                                      | 18 pruebas        |
-| Conectores ARCA (asistido y oficial deshabilitado) y `ManualTransferProvider` | 44 pruebas        |
-| Verificación de principios                                                    | 11 verificaciones |
-| Esquema Prisma con 40 modelos y migración inicial                             | validado          |
+**218 pruebas y 11 verificaciones de principios, verdes en CI.**
+
+| Pieza                                                                           | Estado            |
+| ------------------------------------------------------------------------------- | ----------------- |
+| `Money` con decimal exacto, `Minutes`, `DateRange`, `MaskedAccount`             | 65 pruebas        |
+| Máquinas de estado de relación, período y fichaje                               | incluidas arriba  |
+| Motor de liquidación con los 13 escenarios del encargo                          | 56 pruebas        |
+| Redacción de datos sensibles en logs                                            | 11 pruebas        |
+| Esquemas Zod compartidos                                                        | 18 pruebas        |
+| Conectores ARCA, `ManualTransferProvider`, policies y arranque de la aplicación | 52 pruebas        |
+| Invariantes contra PostgreSQL real (ver abajo)                                  | 16 pruebas        |
+| Verificación de principios del encargo                                          | 11 verificaciones |
+
+Lo verificado **contra una base de datos real** en cada corrida de CI, no sólo afirmado:
+
+- Las migraciones aplican sobre una base limpia y el esquema no tiene deriva respecto de ellas.
+- Los seeds de demostración cargan sin errores.
+- `audit_event` es realmente append-only: `UPDATE` y `DELETE` se rechazan, tanto vía Prisma como
+  por SQL directo, y el evento queda intacto.
+- Los importes conservan precisión decimal exacta en el viaje de ida y vuelta a `NUMERIC(18,4)`.
+- Un fichaje reenviado con la misma clave de idempotencia no se duplica.
+- La API arranca y responde `/health` y `/ready`.
 
 ### Lo que no existe todavía, deliberadamente
 
@@ -170,6 +182,9 @@ Antes de abrir un PR:
 
 ```bash
 pnpm lint && pnpm typecheck && pnpm test && pnpm guardrails && pnpm build
+
+# Y, con el stack levantado, las pruebas que tocan la base:
+pnpm docker:up && pnpm db:migrate && pnpm db:seed && pnpm test:integration
 ```
 
 Definición de terminado para cada módulo: pruebas unitarias, pruebas de integración donde toca base
