@@ -40,7 +40,14 @@
     ],
     "overrides": {
       "@types/react": "19.2.18",
-      "@types/react-dom": "19.2.4"
+      "@types/react-dom": "19.2.4",
+      "tar": "^7.5.22",
+      "vite": "^6.4.3",
+      "@xmldom/xmldom": "^0.9.8",
+      "glob": "^10.5.0",
+      "js-yaml": "^4.1.1",
+      "postcss": "^8.5.18",
+      "sharp": "^0.35.0"
     }
   }
 }

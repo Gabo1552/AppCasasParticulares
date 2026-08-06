@@ -299,6 +299,26 @@ programas de TypeScript, no revertir el override.
 
 Como los manifiestos `package.json` no admiten comentarios, la decisión queda registrada acá.
 
+### `pnpm.overrides` de remediación de seguridad
+
+Cinco paquetes más están fijados por seguridad. Ninguno es una dependencia directa del proyecto:
+todos llegan por el árbol de Expo, Next o Vitest, así que subirlos desde el `package.json` propio no
+es posible y esperar al upstream dejaría el gate de `pnpm audit --audit-level high` en rojo.
+
+| Paquete          | Fijado en | Llega por                                     |
+| ---------------- | --------- | --------------------------------------------- |
+| `tar`            | `^7.5.22` | Expo (denegación de servicio al descomprimir) |
+| `vite`           | `^6.4.3`  | Vitest                                        |
+| `@xmldom/xmldom` | `^0.9.8`  | Expo                                          |
+| `glob`           | `^10.5.0` | Expo                                          |
+| `js-yaml`        | `^4.1.1`  | `@nestjs/swagger`                             |
+| `postcss`        | `^8.5.18` | Expo y Next                                   |
+| `sharp`          | `^0.35.0` | Next                                          |
+
+El efecto medido: de 36 vulnerabilidades (20 altas y 2 críticas) a 3 moderadas. Cada override es
+provisional — cuando el upstream publique una versión que ya incluya el parche, corresponde
+eliminarlo, no acumularlo.
+
 ### `pnpm.onlyBuiltDependencies`
 
 pnpm 10 no ejecuta scripts de instalación salvo autorización explícita. La lista incluye únicamente
