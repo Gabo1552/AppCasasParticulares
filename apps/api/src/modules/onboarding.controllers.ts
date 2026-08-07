@@ -77,11 +77,11 @@ export class EmployerProfileController {
     @Body(new ZodValidationPipe(createProfileSchema))
     body: Parameters<EmployersService['create']>[1],
     @Res({ passthrough: true }) response: Response,
-  ): Promise<ProfileCreatedView> {
+  ): Promise<ProfileView> {
     const profile = await this.employers.create(actor, body);
     const accessToken = await this.identity.issueAccessTokenFor(actor.userId, actor.sessionId);
     refreshAccessCookie(response, this.config, accessToken);
-    return { ...profile, accessToken };
+    return profile;
   }
 
   @Get()
@@ -117,11 +117,11 @@ export class WorkerProfileController {
     @Actor() actor: AuthenticatedActor,
     @Body(new ZodValidationPipe(createProfileSchema)) body: Parameters<WorkersService['create']>[1],
     @Res({ passthrough: true }) response: Response,
-  ): Promise<ProfileCreatedView> {
+  ): Promise<ProfileView> {
     const profile = await this.workers.create(actor, body);
     const accessToken = await this.identity.issueAccessTokenFor(actor.userId, actor.sessionId);
     refreshAccessCookie(response, this.config, accessToken);
-    return { ...profile, accessToken };
+    return profile;
   }
 
   @Get()

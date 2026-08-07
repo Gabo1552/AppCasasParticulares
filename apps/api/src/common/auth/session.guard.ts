@@ -11,6 +11,8 @@ import { AccessTokenService } from './access-token.service';
 import { ACCESS_TOKEN_COOKIE } from './cookies';
 import { IS_PUBLIC_KEY, ROLES_KEY, type RequestWithActor } from './auth.types';
 
+import { RedisSessionRevocationService } from '../../modules/identity/redis-session-revocation.service';
+
 /**
  * Guard de sesión y RBAC.
  *
@@ -26,9 +28,10 @@ export class SessionGuard implements CanActivate {
   constructor(
     private readonly reflector: Reflector,
     private readonly accessTokens: AccessTokenService,
+    private readonly sessionRevocation: RedisSessionRevocationService,
   ) {}
 
-  canActivate(context: ExecutionContext): boolean {
+  async canActivate(context: ExecutionContext): Promise<boolean> {
     const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
       context.getHandler(),
       context.getClass(),
@@ -50,6 +53,14 @@ export class SessionGuard implements CanActivate {
       throw new UnauthorizedException({
         code: 'AUTH_INVALID_TOKEN',
         message: 'Tu sesión venció. Volvé a ingresar.',
+      });
+    }
+
+    const isRevoked = await this.sessionRevocation.isSessionRevoked(payload.sid);
+    if (isRevoked) {
+      throw new UnauthorizedException({
+        code: 'AUTH_SESSION_REVOKED',
+        message: 'Tu sesión fue revocada. Volvé a ingresar.',
       });
     }
 

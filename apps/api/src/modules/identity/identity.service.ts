@@ -12,6 +12,7 @@ import { PrismaService, type PrismaTx } from '../../common/prisma/prisma.service
 import { AppError, TooManyRequestsError, UnprocessableError } from '../../common/http/app.errors';
 import { APP_CONFIG, type AppConfig } from '../../config/app-config';
 import { NotificationsService } from '../notifications/notifications.service';
+import { RedisSessionRevocationService } from './redis-session-revocation.service';
 
 /** Vida del código de un solo uso. Corta a propósito. */
 const OTP_TTL_MINUTES = 10;
@@ -50,6 +51,7 @@ export class IdentityService {
     private readonly accessTokens: AccessTokenService,
     private readonly audit: AuditService,
     private readonly notifications: NotificationsService,
+    private readonly sessionRevocation: RedisSessionRevocationService,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
   ) {}
 
@@ -207,6 +209,11 @@ export class IdentityService {
     }
 
     if (session.revokedAt !== null) {
+      const familySessions = await this.prisma.session.findMany({
+        where: { tokenFamilyId: session.tokenFamilyId },
+        select: { id: true },
+      });
+
       await this.prisma.$transaction(async (tx) => {
         await tx.session.updateMany({
           where: { tokenFamilyId: session.tokenFamilyId, revokedAt: null },
@@ -227,6 +234,8 @@ export class IdentityService {
         });
       });
 
+      await this.sessionRevocation.revokeSessions(familySessions.map((s) => s.id));
+
       throw new AppError(
         'AUTH_REFRESH_REUSED',
         'Detectamos un uso indebido de la sesión. Volvé a ingresar.',
@@ -238,7 +247,7 @@ export class IdentityService {
       throw new AppError('AUTH_REFRESH_EXPIRED', 'Tu sesión venció. Volvé a ingresar.', 401);
     }
 
-    return this.prisma.$transaction(async (tx) => {
+    const rotated = await this.prisma.$transaction(async (tx) => {
       // El token viejo se marca revocado, no se borra: si vuelve a aparecer,
       // el bloque de arriba lo detecta como reutilización.
       await tx.session.update({
@@ -246,12 +255,12 @@ export class IdentityService {
         data: { revokedAt: new Date(), revokedReason: 'ROTATED' },
       });
 
-      const rotated = await this.openSession(tx, session.userId, context, session.tokenFamilyId);
+      const newSession = await this.openSession(tx, session.userId, context, session.tokenFamilyId);
 
       await this.audit.record(tx, {
         action: AuditAction.SESSION_REFRESHED,
         entityType: 'Session',
-        entityId: rotated.sessionId,
+        entityId: newSession.sessionId,
         actor: {
           userId: session.userId,
           role: PlatformRole.SYSTEM,
@@ -262,8 +271,11 @@ export class IdentityService {
         correlationId: context.correlationId,
       });
 
-      return rotated;
+      return newSession;
     });
+
+    await this.sessionRevocation.revokeSession(session.id);
+    return rotated;
   }
 
   async logout(sessionId: string, userId: string, context: RequestContext): Promise<void> {
@@ -286,6 +298,105 @@ export class IdentityService {
         correlationId: context.correlationId,
       });
     });
+    await this.sessionRevocation.revokeSession(sessionId);
+  }
+
+  /** Invalida todas las sesiones del usuario. */
+  async logoutAll(userId: string, context: RequestContext): Promise<void> {
+    const activeSessions = await this.prisma.session.findMany({
+      where: { userId, revokedAt: null },
+      select: { id: true },
+    });
+    const ids = activeSessions.map((s) => s.id);
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.session.updateMany({
+        where: { userId, revokedAt: null },
+        data: { revokedAt: new Date(), revokedReason: 'LOGOUT_ALL' },
+      });
+      for (const sessionId of ids) {
+        await this.audit.record(tx, {
+          action: AuditAction.SESSION_REVOKED,
+          entityType: 'Session',
+          entityId: sessionId,
+          actor: {
+            userId,
+            role: PlatformRole.SYSTEM,
+            ipAddress: context.ipAddress,
+            userAgent: context.userAgent,
+          },
+          after: { reason: 'LOGOUT_ALL' },
+          correlationId: context.correlationId,
+        });
+      }
+    });
+
+    await this.sessionRevocation.revokeSessions(ids);
+  }
+
+  /** Devuelve la lista de sesiones del usuario para administración. */
+  async listSessions(userId: string, currentSessionId: string): Promise<SessionView[]> {
+    const sessions = await this.prisma.session.findMany({
+      where: { userId },
+      orderBy: { lastUsedAt: 'desc' },
+    });
+
+    return sessions.map((s) => {
+      const isRevoked = s.revokedAt !== null;
+      const isExpired = s.expiresAt < new Date();
+      const status: SessionView['status'] = isRevoked
+        ? 'REVOKED'
+        : isExpired
+          ? 'EXPIRED'
+          : 'ACTIVE';
+
+      return {
+        id: s.id,
+        createdAt: s.createdAt.toISOString(),
+        lastUsedAt: s.lastUsedAt.toISOString(),
+        deviceLabel: s.deviceLabel,
+        maskedIp: maskIp(s.ipAddress),
+        isCurrent: s.id === currentSessionId,
+        status,
+      };
+    });
+  }
+
+  /** Revoca una sesión individual del usuario. */
+  async revokeSessionById(
+    sessionId: string,
+    userId: string,
+    context: RequestContext,
+  ): Promise<void> {
+    const session = await this.prisma.session.findFirst({
+      where: { id: sessionId, userId },
+    });
+
+    if (session === null) {
+      throw new AppError('SESSION_NOT_FOUND', 'No encontramos esa sesión.', 404);
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.session.update({
+        where: { id: sessionId },
+        data: { revokedAt: new Date(), revokedReason: 'INDIVIDUAL_REVOCATION' },
+      });
+      await this.audit.record(tx, {
+        action: AuditAction.SESSION_REVOKED,
+        entityType: 'Session',
+        entityId: sessionId,
+        actor: {
+          userId,
+          role: PlatformRole.SYSTEM,
+          ipAddress: context.ipAddress,
+          userAgent: context.userAgent,
+        },
+        after: { reason: 'INDIVIDUAL_REVOCATION' },
+        correlationId: context.correlationId,
+      });
+    });
+
+    await this.sessionRevocation.revokeSession(sessionId);
   }
 
   /** Emite un access token nuevo con los roles y perfiles actuales del usuario. */
@@ -403,6 +514,29 @@ export class IdentityService {
   get isProduction(): boolean {
     return this.config.NODE_ENV === 'production';
   }
+}
+
+export interface SessionView {
+  id: string;
+  createdAt: string;
+  lastUsedAt: string;
+  deviceLabel: string | null;
+  maskedIp: string | null;
+  isCurrent: boolean;
+  status: 'ACTIVE' | 'REVOKED' | 'EXPIRED';
+}
+
+export function maskIp(ip?: string | null): string | null {
+  if (!ip) return null;
+  if (ip.includes('.')) {
+    const parts = ip.split('.');
+    if (parts.length === 4) return `${parts[0]}.${parts[1]}.${parts[2]}.***`;
+  }
+  if (ip.includes(':')) {
+    const parts = ip.split(':');
+    return `${parts.slice(0, Math.min(3, parts.length)).join(':')}:***`;
+  }
+  return '***';
 }
 
 export { OTP_MAX_ATTEMPTS, OTP_TTL_MINUTES, OTP_REQUESTS_PER_WINDOW, OTP_PURPOSE };
