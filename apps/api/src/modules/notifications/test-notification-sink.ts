@@ -19,10 +19,10 @@ export interface EmittedNotification {
  */
 @Injectable()
 export class TestNotificationSink {
-  private readonly notifications: EmittedNotification[] = [];
+  private static readonly notifications: EmittedNotification[] = [];
 
   recordAccessCode(to: string, code: string): void {
-    this.notifications.push({
+    TestNotificationSink.notifications.push({
       to: to.toLowerCase(),
       type: 'ACCESS_CODE',
       code,
@@ -31,7 +31,7 @@ export class TestNotificationSink {
   }
 
   recordInvitation(to: string, token: string): void {
-    this.notifications.push({
+    TestNotificationSink.notifications.push({
       to: to.toLowerCase(),
       type: 'INVITATION',
       token,
@@ -41,12 +41,14 @@ export class TestNotificationSink {
 
   getLastAccessCode(to: string): string | null {
     const dest = to.toLowerCase();
-    const matches = this.notifications.filter((n) => n.to === dest && n.type === 'ACCESS_CODE');
+    const matches = TestNotificationSink.notifications.filter(
+      (n) => n.to === dest && n.type === 'ACCESS_CODE',
+    );
     const last = matches[matches.length - 1];
     return last?.code ?? null;
   }
 
   clear(): void {
-    this.notifications.length = 0;
+    TestNotificationSink.notifications.length = 0;
   }
 }
