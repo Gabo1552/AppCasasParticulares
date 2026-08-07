@@ -63,3 +63,17 @@ export class ARCAIntegrationNotEnabledError extends DomainError {
 export class ObjectPermissionDeniedError extends DomainError {
   readonly code = 'DOMAIN_OBJECT_PERMISSION_DENIED';
 }
+
+/**
+ * Conflicto de versión (optimistic locking). La versión o estado enviado por el cliente
+ * ya no coincide con el estado actual en la base de datos.
+ */
+export class ResourceVersionConflictError extends DomainError {
+  readonly code = 'RESOURCE_VERSION_CONFLICT';
+
+  constructor(
+    message = 'La información cambió mientras la estabas revisando. Recargá la pantalla antes de continuar.',
+  ) {
+    super(message);
+  }
+}

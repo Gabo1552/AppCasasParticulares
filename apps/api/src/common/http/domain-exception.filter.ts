@@ -11,6 +11,7 @@ import {
   IllegalStateTransitionError,
   InvalidValueError,
   ObjectPermissionDeniedError,
+  ResourceVersionConflictError,
   TransitionGuardError,
 } from '@casas/domain';
 import { OptimisticLockError } from '@casas/database';
@@ -56,11 +57,25 @@ export class DomainExceptionFilter implements ExceptionFilter {
       };
     }
 
+    if (exception instanceof ResourceVersionConflictError) {
+      return {
+        status: HttpStatus.CONFLICT,
+        body: {
+          code: exception.code,
+          message: exception.message,
+        },
+      };
+    }
+
     if (exception instanceof OptimisticLockError) {
       // 409: otro actor modificó el recurso mientras tanto (decisión D11).
       return {
         status: HttpStatus.CONFLICT,
-        body: { code: exception.code, message: exception.message },
+        body: {
+          code: 'RESOURCE_VERSION_CONFLICT',
+          message:
+            'La información cambió mientras la estabas revisando. Recargá la pantalla antes de continuar.',
+        },
       };
     }
 
