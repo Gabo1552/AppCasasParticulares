@@ -29,7 +29,9 @@ export class TestSupportController {
   constructor(
     private readonly prisma: PrismaService,
     private readonly tokens: TokenService,
-    @Optional() private readonly testSink: TestNotificationSink | null,
+    @Optional()
+    @Inject(TestNotificationSink)
+    private readonly testSink: TestNotificationSink | null,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
   ) {}
 
