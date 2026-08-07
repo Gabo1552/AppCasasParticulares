@@ -15,6 +15,7 @@ import { APP_CONFIG, type AppConfig } from '../../config/app-config';
  * que en este entorno apunta a Mailpit y falla en silencio si no está corriendo.
  */
 export async function bootTestApp(): Promise<INestApplication> {
+  process.env.FEATURE_TEST_SUPPORT_ENDPOINTS = 'true';
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
   const app = moduleRef.createNestApplication();
   configureApp(app, app.get<AppConfig>(APP_CONFIG));
