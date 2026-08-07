@@ -42,10 +42,22 @@ describe('Prueba de Concurrencia Real PostgreSQL — Modificación y Aceptación
     } as AppConfig;
 
     const audit = new AuditService();
-    const notifications = { sendConditionsAccepted: async () => {} } as unknown as NotificationsService;
+    const notifications = {
+      sendConditionsAccepted: async () => {},
+    } as unknown as NotificationsService;
 
-    const serviceEmployer = new RelationshipsService(prismaEmployer as never, audit, notifications, config);
-    const serviceWorker = new RelationshipsService(prismaWorker as never, audit, notifications, config);
+    const serviceEmployer = new RelationshipsService(
+      prismaEmployer as never,
+      audit,
+      notifications,
+      config,
+    );
+    const serviceWorker = new RelationshipsService(
+      prismaWorker as never,
+      audit,
+      notifications,
+      config,
+    );
 
     // 1. Crear usuarios y relación de prueba en PostgreSQL
     const userEmp = await prismaEmployer.user.create({
@@ -58,7 +70,12 @@ describe('Prueba de Concurrencia Real PostgreSQL — Modificación y Aceptación
       data: { userId: userEmp.id, firstName: 'Familia', lastName: 'Test', taxId: '20123456789' },
     });
     const wrkProfile = await prismaEmployer.workerProfile.create({
-      data: { userId: userWrk.id, firstName: 'Trabajadora', lastName: 'Test', taxId: '27987654321' },
+      data: {
+        userId: userWrk.id,
+        firstName: 'Trabajadora',
+        lastName: 'Test',
+        taxId: '27987654321',
+      },
     });
     const household = await prismaEmployer.household.create({
       data: {

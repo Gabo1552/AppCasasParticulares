@@ -530,6 +530,8 @@ export function canonicalizeJson(obj: unknown): string {
     return `[${obj.map((item) => canonicalizeJson(item)).join(',')}]`;
   }
   const keys = Object.keys(obj as Record<string, unknown>).sort();
-  const pairs = keys.map((key) => `${JSON.stringify(key)}:${canonicalizeJson((obj as Record<string, unknown>)[key])}`);
+  const pairs = keys.map(
+    (key) => `${JSON.stringify(key)}:${canonicalizeJson((obj as Record<string, unknown>)[key])}`,
+  );
   return `{${pairs.join(',')}}`;
 }
