@@ -99,8 +99,10 @@ export class ApiClient {
   async login(email: string): Promise<Session> {
     await this.post('/auth/request-code', { email }).expect(201);
 
+    const secret = process.env.TEST_SUPPORT_SECRET || 'test-support-secret-32-chars-length';
     const codeResponse = await request(this.server)
       .get('/api/v1/test-support/last-access-code')
+      .set('x-test-support-secret', secret)
       .query({ email })
       .expect(200);
 
@@ -130,8 +132,10 @@ export class ApiClient {
 
   /** Token en claro de la última invitación enviada a ese correo. */
   async invitationToken(email: string): Promise<string> {
+    const secret = process.env.TEST_SUPPORT_SECRET || 'test-support-secret-32-chars-length';
     const response = await request(this.server)
       .get('/api/v1/test-support/invitation-token')
+      .set('x-test-support-secret', secret)
       .query({ email })
       .expect(200);
     return (response.body as { token: string }).token;
