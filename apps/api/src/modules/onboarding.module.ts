@@ -55,7 +55,7 @@ const guards: Provider[] = [
     ...testSupportControllers,
   ],
   providers: [
-    { provide: APP_CONFIG, useFactory: (): AppConfig => config },
+    { provide: APP_CONFIG, useFactory: (): AppConfig => loadAppConfig() },
     PrismaService,
     AuditService,
     TokenService,
