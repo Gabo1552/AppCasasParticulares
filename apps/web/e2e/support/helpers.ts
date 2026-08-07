@@ -18,9 +18,12 @@ export function correoUnico(prefijo: string): string {
   return `${prefijo}-${sufijo}@example.test`;
 }
 
+const secret = process.env['TEST_SUPPORT_SECRET'] ?? 'test-support-secret-32-chars-length';
+
 export async function ultimoCodigo(request: APIRequestContext, email: string): Promise<string> {
   const respuesta = await request.get(`${API_URL}/api/v1/test-support/last-access-code`, {
     params: { email },
+    headers: { 'x-test-support-secret': secret },
   });
   expect(respuesta.ok(), `No se pudo obtener el código de ${email}`).toBeTruthy();
   return ((await respuesta.json()) as { code: string }).code;
@@ -29,6 +32,7 @@ export async function ultimoCodigo(request: APIRequestContext, email: string): P
 export async function tokenInvitacion(request: APIRequestContext, email: string): Promise<string> {
   const respuesta = await request.get(`${API_URL}/api/v1/test-support/invitation-token`, {
     params: { email },
+    headers: { 'x-test-support-secret': secret },
   });
   expect(respuesta.ok(), `No se pudo obtener la invitación de ${email}`).toBeTruthy();
   return ((await respuesta.json()) as { token: string }).token;
