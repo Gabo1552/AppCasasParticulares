@@ -1,3 +1,33 @@
 packages:
   - 'apps/*'
   - 'packages/*'
+
+# Desde pnpm 10.20 estos ajustes viven acá y ya no se leen desde el campo "pnpm"
+# de package.json. Mientras estuvieron allá, pnpm los ignoraba en silencio: los
+# overrides de seguridad no se aplicaban y los scripts de build no se ejecutaban.
+# Ver https://pnpm.io/settings
+
+# Paquetes autorizados a ejecutar scripts de instalación. El resto se instala
+# con sus scripts bloqueados.
+onlyBuiltDependencies:
+  - 'esbuild'
+  - '@prisma/client'
+  - 'prisma'
+  - '@prisma/engines'
+  - '@nestjs/core'
+  - 'sharp'
+  - 'msgpackr-extract'
+
+# Versiones forzadas en todo el árbol de dependencias. Las que no son de tipos
+# son remediaciones de vulnerabilidades: bajarlas reabre el hallazgo que
+# `pnpm audit --audit-level high` verifica en CI.
+overrides:
+  '@types/react': '19.2.18'
+  '@types/react-dom': '19.2.4'
+  'tar': '^7.5.22'
+  'vite': '^6.4.3'
+  '@xmldom/xmldom': '^0.9.8'
+  'glob': '^10.5.0'
+  'js-yaml': '^4.1.1'
+  'postcss': '^8.5.18'
+  'sharp': '^0.35.0'

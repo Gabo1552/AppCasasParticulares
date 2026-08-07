@@ -27,27 +27,5 @@
     "prettier": "^3.4.2",
     "turbo": "^2.3.3",
     "typescript": "^6.0.3"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "esbuild",
-      "@prisma/client",
-      "prisma",
-      "@prisma/engines",
-      "@nestjs/core",
-      "sharp",
-      "msgpackr-extract"
-    ],
-    "overrides": {
-      "@types/react": "19.2.18",
-      "@types/react-dom": "19.2.4",
-      "tar": "^7.5.22",
-      "vite": "^6.4.3",
-      "@xmldom/xmldom": "^0.9.8",
-      "glob": "^10.5.0",
-      "js-yaml": "^4.1.1",
-      "postcss": "^8.5.18",
-      "sharp": "^0.35.0"
-    }
   }
 }
