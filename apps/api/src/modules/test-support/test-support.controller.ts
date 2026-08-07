@@ -1,33 +1,27 @@
-import { Controller, ForbiddenException, Get, Inject, Query } from '@nestjs/common';
+import { timingSafeEqual } from 'node:crypto';
+import {
+  Controller,
+  ForbiddenException,
+  Get,
+  Headers,
+  Inject,
+  Optional,
+  Query,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { ApiExcludeController } from '@nestjs/swagger';
 import { Public } from '../../common/auth/auth.types';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { NotFoundError } from '../../common/http/app.errors';
 import { TokenService } from '../../common/crypto/token.service';
 import { APP_CONFIG, type AppConfig } from '../../config/app-config';
+import { TestNotificationSink } from '../notifications/test-notification-sink';
 
 /**
- * Apoyo para las pruebas automatizadas.
+ * Apoyo para las pruebas automatizadas (exclusivo para NODE_ENV=test).
  *
- * El E2E necesita el código de acceso y el enlace de invitación sin leer un
- * buzón: parsear correos haría la prueba lenta y frágil. Este controlador los
- * entrega directamente.
- *
- * ════════════════════════════════════════════════════════════════════════════
- *  ES UNA PUERTA SIN AUTENTICACIÓN. NO PUEDE EXISTIR EN PRODUCCIÓN.
- *
- *  Tres barreras independientes, porque una sola variable mal puesta no puede
- *  ser lo único que separe esto de una filtración de códigos de acceso:
- *
- *   1. `loadAppConfig` rechaza el arranque si FEATURE_TEST_SUPPORT_ENDPOINTS
- *      llega en `true` con NODE_ENV=production.
- *   2. El módulo sólo se registra si el flag está encendido.
- *   3. Cada handler vuelve a verificar el entorno en tiempo de ejecución.
- * ════════════════════════════════════════════════════════════════════════════
- *
- * Además, no devuelve nada arbitrario: sólo el último código de un correo
- * concreto y el token de una invitación concreta. No lista usuarios ni permite
- * recorrer la base.
+ * Entrega directamente el código OTP (obtenido en memoria desde TestNotificationSink,
+ * sin almacenar en claro en la BD) y el token de invitación.
  */
 @ApiExcludeController()
 @Controller('test-support')
@@ -35,23 +29,42 @@ export class TestSupportController {
   constructor(
     private readonly prisma: PrismaService,
     private readonly tokens: TokenService,
+    @Optional() private readonly testSink: TestNotificationSink | null,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
   ) {}
 
-  private assertEnabled(): void {
-    if (this.config.NODE_ENV === 'production' || !this.config.FEATURE_TEST_SUPPORT_ENDPOINTS) {
+  private assertEnabled(secretHeader?: string): void {
+    if (this.config.NODE_ENV !== 'test' || !this.config.FEATURE_TEST_SUPPORT_ENDPOINTS) {
       throw new ForbiddenException({
         code: 'TEST_SUPPORT_DISABLED',
-        message: 'No disponible.',
+        message: 'Endpoints de prueba sólo disponibles en NODE_ENV=test.',
+      });
+    }
+
+    const expectedSecret = this.config.TEST_SUPPORT_SECRET;
+    if (!expectedSecret || expectedSecret.length < 16) {
+      throw new ForbiddenException({
+        code: 'TEST_SUPPORT_NOT_CONFIGURED',
+        message: 'Secret de test support no configurado.',
+      });
+    }
+
+    if (!secretHeader || !timingSafeCompare(secretHeader, expectedSecret)) {
+      throw new UnauthorizedException({
+        code: 'TEST_SUPPORT_UNAUTHORIZED',
+        message: 'La cabecera x-test-support-secret es inválida.',
       });
     }
   }
 
-  /** Último código de acceso vigente para un correo. */
+  /** Último código de acceso vigente para un correo (obtenido del sink de notificaciones de prueba). */
   @Public()
   @Get('last-access-code')
-  async lastAccessCode(@Query('email') email: string): Promise<{ code: string }> {
-    this.assertEnabled();
+  async lastAccessCode(
+    @Query('email') email: string,
+    @Headers('x-test-support-secret') secretHeader?: string,
+  ): Promise<{ code: string }> {
+    this.assertEnabled(secretHeader);
 
     const destination = (email ?? '').toLowerCase();
     const record = await this.prisma.oneTimeCode.findFirst({
@@ -60,29 +73,22 @@ export class TestSupportController {
     });
     if (record === null) throw new NotFoundError('No hay un código vigente para ese correo.');
 
-    // El código está hasheado: no se puede revertir. Se prueban los 10^6
-    // valores contra el HMAC, que en local tarda menos de un segundo. Es
-    // deliberado que el sistema no pueda devolver el código sin fuerza bruta:
-    // significa que la base realmente no lo guarda en claro.
-    for (let candidate = 0; candidate < 1_000_000; candidate += 1) {
-      const code = String(candidate).padStart(6, '0');
-      if (this.tokens.verifyOtpCode(code, destination, record.codeHash)) {
-        return { code };
-      }
+    const code = this.testSink?.getLastAccessCode(destination);
+    if (!code) {
+      throw new NotFoundError('No se pudo recuperar el código desde el sink de prueba.');
     }
-    throw new NotFoundError('No se pudo resolver el código.');
+
+    return { code };
   }
 
-  /**
-   * Token en claro de una invitación pendiente.
-   *
-   * Acá no hay fuerza bruta posible —el token tiene 256 bits— así que se emite
-   * uno nuevo y se reemplaza el hash, igual que hace un reenvío.
-   */
+  /** Token en claro de una invitación pendiente. */
   @Public()
   @Get('invitation-token')
-  async invitationToken(@Query('email') email: string): Promise<{ token: string }> {
-    this.assertEnabled();
+  async invitationToken(
+    @Query('email') email: string,
+    @Headers('x-test-support-secret') secretHeader?: string,
+  ): Promise<{ token: string }> {
+    this.assertEnabled(secretHeader);
 
     const invitation = await this.prisma.workerInvitation.findFirst({
       where: { workerEmail: (email ?? '').toLowerCase(), status: 'PENDING' },
@@ -100,4 +106,11 @@ export class TestSupportController {
 
     return { token };
   }
+}
+
+function timingSafeCompare(a: string, b: string): boolean {
+  const bufA = Buffer.from(a, 'utf8');
+  const bufB = Buffer.from(b, 'utf8');
+  if (bufA.length !== bufB.length) return false;
+  return timingSafeEqual(bufA, bufB);
 }
