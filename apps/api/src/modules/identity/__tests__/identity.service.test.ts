@@ -9,6 +9,7 @@ import { FakePrisma } from '../../../__tests__/support/fake-prisma';
 import type { PrismaService } from '../../../common/prisma/prisma.service';
 import type { NotificationsService } from '../../notifications/notifications.service';
 import { IdentityService, OTP_MAX_ATTEMPTS, OTP_REQUESTS_PER_WINDOW } from '../identity.service';
+import type { RedisSessionRevocationService } from '../redis-session-revocation.service';
 
 const EMAIL = 'ana@example.test';
 
@@ -41,12 +42,19 @@ function buildService(): {
     }),
   } as unknown as NotificationsService;
 
+  const sessionRevocation = {
+    revokeSession: vi.fn().mockResolvedValue(undefined),
+    revokeSessions: vi.fn().mockResolvedValue(undefined),
+    isSessionRevoked: vi.fn().mockResolvedValue(false),
+  } as unknown as RedisSessionRevocationService;
+
   const identity = new IdentityService(
     prisma as unknown as PrismaService,
     tokens,
     new AccessTokenService(new JwtService({}), config),
     new AuditService(),
     notifications,
+    sessionRevocation,
     config,
   );
 

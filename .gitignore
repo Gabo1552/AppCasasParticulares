@@ -24,3 +24,4 @@ test-results/
 playwright-report/
 blob-report/
 packages/database/.env
+apps/api/.env

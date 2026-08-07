@@ -47,7 +47,6 @@ class FakeTable {
     return result;
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await
   async create(args: { data: Row; include?: Record<string, unknown> }): Promise<Row> {
     const now = new Date();
     const row: Row = {
@@ -61,7 +60,6 @@ class FakeTable {
     return this.hydrate(row, args.include) as Row;
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await
   async findUnique(args: FindArgs): Promise<Row | null> {
     return this.hydrate(this.match(args.where).at(0), args.include);
   }
@@ -72,19 +70,16 @@ class FakeTable {
     return row;
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await
   async findFirst(args: FindArgs): Promise<Row | null> {
     return this.hydrate(this.sorted(this.match(args.where), args.orderBy).at(0), args.include);
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await
   async findMany(args: FindArgs = {}): Promise<Row[]> {
     return this.sorted(this.match(args.where), args.orderBy).map(
       (row) => this.hydrate(row, args.include) as Row,
     );
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await
   async count(args: FindArgs = {}): Promise<number> {
     return this.match(args.where).length;
   }
@@ -97,7 +92,6 @@ class FakeTable {
     return this.hydrate(row, args.include) as Row;
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await
   async updateMany(args: { where: Row; data: Row }): Promise<{ count: number }> {
     const matched = this.match(args.where);
     for (const row of matched) {
