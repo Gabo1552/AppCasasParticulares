@@ -22,7 +22,9 @@ export class NotificationsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly outbox: OutboxNotificationService,
-    @Optional() private readonly testSink: TestNotificationSink | null,
+    @Optional()
+    @Inject(TestNotificationSink)
+    private readonly testSink: TestNotificationSink | null,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
   ) {
     this.transporter = createTransport({
