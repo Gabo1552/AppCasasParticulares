@@ -74,13 +74,16 @@ describe('Prueba de Concurrencia Real — Modificación y Aceptación Simultáne
 
     const employerActor = {
       userId: 'user-employer',
+      sessionId: 'sess-1',
       roles: ['FAMILY_EMPLOYER'],
-    } as AuthenticatedActor;
+      employerId: 'emp-1',
+    } as unknown as AuthenticatedActor;
     const workerActor = {
       userId: 'user-worker',
+      sessionId: 'sess-2',
       roles: ['WORKER'],
       workerId: 'worker-1',
-    } as AuthenticatedActor;
+    } as unknown as AuthenticatedActor;
 
     // Ejecutar simultáneamente saveConditions y acceptConditions sobre la misma versión 2
     const results = await Promise.allSettled([

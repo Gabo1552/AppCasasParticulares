@@ -66,15 +66,20 @@ describe('Prueba de Concurrencia Real PostgreSQL — Modificación y Aceptación
     const userWrk = await prismaEmployer.user.create({
       data: { email: `wrk-${Date.now()}@example.com`, displayName: 'Trabajadora Test' },
     });
-    const empProfile = await prismaEmployer.employerProfile.create({
-      data: { userId: userEmp.id, firstName: 'Familia', lastName: 'Test', taxId: '20123456789' },
+    const empProfile = await prismaEmployer.employer.create({
+      data: {
+        userId: userEmp.id,
+        firstName: 'Familia',
+        lastName: 'Test',
+        legalName: 'Familia Test',
+      },
     });
-    const wrkProfile = await prismaEmployer.workerProfile.create({
+    const wrkProfile = await prismaEmployer.worker.create({
       data: {
         userId: userWrk.id,
         firstName: 'Trabajadora',
         lastName: 'Test',
-        taxId: '27987654321',
+        legalName: 'Trabajadora Test',
       },
     });
     const household = await prismaEmployer.household.create({
@@ -94,6 +99,7 @@ describe('Prueba de Concurrencia Real PostgreSQL — Modificación y Aceptación
         employerId: empProfile.id,
         workerId: wrkProfile.id,
         householdId: household.id,
+        startDate: new Date(),
         status: 'PENDING_WORKER_ACCEPTANCE',
         version: 1,
         terms: {
@@ -115,12 +121,14 @@ describe('Prueba de Concurrencia Real PostgreSQL — Modificación y Aceptación
       sessionId: 'sess-1',
       roles: [PlatformRole.FAMILY_EMPLOYER],
       employerId: empProfile.id,
+      workerId: null,
     };
 
     const workerActor: AuthenticatedActor = {
       userId: userWrk.id,
       sessionId: 'sess-2',
       roles: [PlatformRole.WORKER],
+      employerId: null,
       workerId: wrkProfile.id,
     };
 

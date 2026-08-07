@@ -1,3 +1,4 @@
+import type { HealthReport } from '@casas/observability';
 import {
   ARCA_CONNECTOR,
   PAYMENT_PROVIDER,
