@@ -33,10 +33,9 @@ import {
 
 const config = loadAppConfig();
 
-const testSupportControllers = config.FEATURE_TEST_SUPPORT_ENDPOINTS ? [TestSupportController] : [];
-const testSupportProviders: Provider[] = config.FEATURE_TEST_SUPPORT_ENDPOINTS
-  ? [TestNotificationSink]
-  : [];
+const isNonProd = config.NODE_ENV !== 'production';
+const testSupportControllers = isNonProd ? [TestSupportController] : [];
+const testSupportProviders: Provider[] = isNonProd ? [TestNotificationSink] : [];
 
 const guards: Provider[] = [
   { provide: APP_GUARD, useClass: SessionGuard },
