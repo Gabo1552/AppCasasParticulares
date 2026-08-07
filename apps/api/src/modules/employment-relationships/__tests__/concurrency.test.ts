@@ -28,8 +28,14 @@ describe('Prueba de Concurrencia Real — Modificación y Aceptación Simultáne
         },
       ],
       schedules: [{ id: 'sched-1', version: 1, status: 'PUBLISHED' }],
-      employer: { user: { id: 'user-employer', email: 'familia@example.com' }, legalName: 'Familia Perez' },
-      worker: { user: { id: 'user-worker', email: 'trabajadora@example.com' }, legalName: 'Ana Gomez' },
+      employer: {
+        user: { id: 'user-employer', email: 'familia@example.com' },
+        legalName: 'Familia Perez',
+      },
+      worker: {
+        user: { id: 'user-worker', email: 'trabajadora@example.com' },
+        legalName: 'Ana Gomez',
+      },
       household: { label: 'Casa Centro' },
     };
 
