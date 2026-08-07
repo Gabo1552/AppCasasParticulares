@@ -31,12 +31,6 @@ import {
   WorkerProfileController,
 } from './onboarding.controllers';
 
-const config = loadAppConfig();
-
-const isNonProd = config.NODE_ENV !== 'production';
-const testSupportControllers = isNonProd ? [TestSupportController] : [];
-const testSupportProviders: Provider[] = isNonProd ? [TestNotificationSink] : [];
-
 const guards: Provider[] = [
   { provide: APP_GUARD, useClass: SessionGuard },
   { provide: APP_GUARD, useClass: CsrfGuard },
@@ -52,7 +46,7 @@ const guards: Provider[] = [
     HouseholdsController,
     WorkerInvitationsController,
     EmploymentRelationshipsController,
-    ...testSupportControllers,
+    TestSupportController,
   ],
   providers: [
     { provide: APP_CONFIG, useFactory: (): AppConfig => loadAppConfig() },
@@ -71,7 +65,7 @@ const guards: Provider[] = [
     InvitationsService,
     RelationshipsService,
     WorkSchedulesService,
-    ...testSupportProviders,
+    TestNotificationSink,
     ...guards,
   ],
   exports: [PrismaService, APP_CONFIG, RedisSessionRevocationService, NotificationsService],
