@@ -12,9 +12,10 @@ describe('Prueba de Concurrencia Real — Modificación y Aceptación Simultáne
 
     const mockRelationship = {
       id: 'rel-100',
-      version: 2, // Ambas operaciones leen versión 2 inicialmente
-      status: 'PENDING_WORKER_ACCEPTANCE',
+      employerId: 'emp-1',
       workerId: 'worker-1',
+      status: 'PENDING_WORKER_ACCEPTANCE',
+      version: 2, // Ambas operaciones leen versión 2 inicialmente
       terms: [
         {
           id: 'terms-1',
@@ -27,8 +28,8 @@ describe('Prueba de Concurrencia Real — Modificación y Aceptación Simultáne
         },
       ],
       schedules: [{ id: 'sched-1', version: 1, status: 'PUBLISHED' }],
-      employer: { user: { email: 'familia@example.com' }, legalName: 'Familia Perez' },
-      worker: { user: { email: 'trabajadora@example.com' }, legalName: 'Ana Gomez' },
+      employer: { user: { id: 'user-employer', email: 'familia@example.com' }, legalName: 'Familia Perez' },
+      worker: { user: { id: 'user-worker', email: 'trabajadora@example.com' }, legalName: 'Ana Gomez' },
       household: { label: 'Casa Centro' },
     };
 
