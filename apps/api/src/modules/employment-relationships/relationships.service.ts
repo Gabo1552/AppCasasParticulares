@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
 import {
   EmploymentRelationshipStatus,
@@ -5,7 +6,7 @@ import {
   Prisma,
   type WorkScheduleStatus,
 } from '@casas/database';
-import { employmentRelationshipStateMachine } from '@casas/domain';
+import { employmentRelationshipStateMachine, ResourceVersionConflictError } from '@casas/domain';
 import { toTimeOfDay, type RelationshipConditionsInput } from '@casas/contracts';
 import { AuditAction, AuditService } from '../../common/audit/audit.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
@@ -141,10 +142,13 @@ export class RelationshipsService {
         });
       }
 
-      await tx.employmentRelationship.update({
-        where: { id },
+      const updated = await tx.employmentRelationship.updateMany({
+        where: { id, version: relationship.version, status: relationship.status },
         data: { startDate: new Date(input.plannedStartDate), version: { increment: 1 } },
       });
+      if (updated.count !== 1) {
+        throw new ResourceVersionConflictError();
+      }
 
       // Editar condiciones ya enviadas las devuelve a configuración: la
       // trabajadora tiene que volver a verlas antes de aceptar.
@@ -200,10 +204,14 @@ export class RelationshipsService {
     );
 
     await this.prisma.$transaction(async (tx) => {
-      await tx.employmentRelationship.update({
-        where: { id },
+      const updated = await tx.employmentRelationship.updateMany({
+        where: { id, version: relationship.version, status: relationship.status },
         data: { status: nextStatus, version: { increment: 1 } },
       });
+      if (updated.count !== 1) {
+        throw new ResourceVersionConflictError();
+      }
+
       await this.audit.record(tx, {
         action: AuditAction.RELATIONSHIP_CONDITIONS_SUBMITTED,
         entityType: 'EmploymentRelationship',
@@ -254,28 +262,68 @@ export class RelationshipsService {
       );
     }
 
+    const currentSchedule = relationship.schedules[0];
+
     await this.prisma.$transaction(async (tx) => {
       const acceptedAt = new Date();
+
+      const acceptedSnapshot = {
+        relationshipId: id,
+        relationshipVersion: relationship.version,
+        schedule: {
+          id: currentSchedule?.id ?? null,
+          status: currentSchedule?.status ?? null,
+          version: currentSchedule?.version ?? null,
+        },
+        terms: {
+          agreedRemuneration: currentTerms.agreedRemuneration.toString(),
+          categoryCode: currentTerms.categoryCode,
+          id: currentTerms.id,
+          liveInMode: currentTerms.liveInMode,
+          remunerationScheme: currentTerms.remunerationScheme,
+          version: currentTerms.version,
+          weeklyHours: currentTerms.weeklyHours,
+        },
+        userId: actor.userId,
+        workerId: relationship.workerId,
+      };
+
+      const snapshotSchemaVersion = '1.0';
+      const canonicalString = canonicalizeJson(acceptedSnapshot);
+      const acceptedSnapshotHash = createHash('sha256').update(canonicalString).digest('hex');
 
       await tx.relationshipTerms.update({
         where: { id: currentTerms.id },
         data: { acceptedByWorkerAt: acceptedAt },
       });
 
-      await tx.employmentRelationship.update({
-        where: { id },
+      const updated = await tx.employmentRelationship.updateMany({
+        where: { id, version: relationship.version, status: relationship.status },
         data: {
           status: nextStatus,
           workerAcceptedAt: acceptedAt,
           workerAcceptanceEvidence: {
+            relationshipId: id,
+            relationshipVersion: relationship.version,
             termsId: currentTerms.id,
+            termsVersion: currentTerms.version,
+            scheduleId: currentSchedule?.id ?? null,
+            scheduleVersion: currentSchedule?.version ?? null,
             acceptedAt: acceptedAt.toISOString(),
+            workerId: relationship.workerId,
+            userId: actor.userId,
             ipAddress: actor.ipAddress ?? null,
             userAgent: actor.userAgent ?? null,
+            snapshotSchemaVersion,
+            acceptedSnapshot,
+            acceptedSnapshotHash,
           },
           version: { increment: 1 },
         },
       });
+      if (updated.count !== 1) {
+        throw new ResourceVersionConflictError();
+      }
 
       await this.audit.record(tx, {
         action: AuditAction.RELATIONSHIP_CONDITIONS_ACCEPTED,
@@ -320,10 +368,14 @@ export class RelationshipsService {
     );
 
     await this.prisma.$transaction(async (tx) => {
-      await tx.employmentRelationship.update({
-        where: { id },
+      const updated = await tx.employmentRelationship.updateMany({
+        where: { id, version: relationship.version, status: relationship.status },
         data: { status: nextStatus, version: { increment: 1 } },
       });
+      if (updated.count !== 1) {
+        throw new ResourceVersionConflictError();
+      }
+
       await this.audit.record(tx, {
         action: AuditAction.RELATIONSHIP_CONDITIONS_REJECTED,
         entityType: 'EmploymentRelationship',
@@ -468,4 +520,18 @@ function nextActionFor(
     default:
       return { actor: 'NONE', description: 'Sin acciones pendientes.' };
   }
+}
+
+export function canonicalizeJson(obj: unknown): string {
+  if (obj === null || typeof obj !== 'object') {
+    return JSON.stringify(obj);
+  }
+  if (Array.isArray(obj)) {
+    return `[${obj.map((item) => canonicalizeJson(item)).join(',')}]`;
+  }
+  const keys = Object.keys(obj as Record<string, unknown>).sort();
+  const pairs = keys.map(
+    (key) => `${JSON.stringify(key)}:${canonicalizeJson((obj as Record<string, unknown>)[key])}`,
+  );
+  return `{${pairs.join(',')}}`;
 }

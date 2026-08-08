@@ -14,6 +14,7 @@ export {
   TransitionGuardError,
   ARCAIntegrationNotEnabledError,
   ObjectPermissionDeniedError,
+  ResourceVersionConflictError,
 } from './errors';
 
 // Roles

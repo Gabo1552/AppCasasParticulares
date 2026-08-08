@@ -1,8 +1,9 @@
-import { Controller, Get, Param } from '@nestjs/common';
+import { Controller, Get, Inject, Param } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Public } from '../../common/auth/auth.types';
-import { NotFoundError } from '../../common/http/app.errors';
+import { AppError, NotFoundError } from '../../common/http/app.errors';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { APP_CONFIG, type AppConfig } from '../../config/app-config';
 
 export interface LegalDocumentView {
   kind: string;
@@ -10,6 +11,8 @@ export interface LegalDocumentView {
   locale: string;
   body: string;
   publishedAt: string;
+  status: 'DRAFT' | 'UNDER_REVIEW' | 'APPROVED' | 'RETIRED';
+  warningBanner?: string | null;
 }
 
 const TIPOS: Record<string, 'TERMS_OF_SERVICE' | 'PRIVACY_POLICY'> = {
@@ -22,16 +25,14 @@ const TIPOS: Record<string, 'TERMS_OF_SERVICE' | 'PRIVACY_POLICY'> = {
  *
  * Es público a propósito: la persona tiene que poder leer lo que va a aceptar
  * *antes* de tener una cuenta.
- *
- * Devuelve el mismo registro al que después apunta el consentimiento, así que lo
- * que se leyó y lo que quedó aceptado son la misma fila. Si el texto se
- * reemplazara por otro sin versionar, esa correspondencia se rompería — por eso
- * publicar una versión nueva agrega una fila en lugar de editar la existente.
  */
 @ApiTags('legal')
 @Controller('legal')
 export class LegalController {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(APP_CONFIG) private readonly config: AppConfig,
+  ) {}
 
   @Public()
   @Get(':tipo')
@@ -40,18 +41,46 @@ export class LegalController {
     const kind = TIPOS[tipo];
     if (kind === undefined) throw new NotFoundError('No encontramos ese documento.');
 
-    const documento = await this.prisma.consentDocument.findFirst({
-      where: { kind },
+    // Buscar si existe un documento explícitamente APROBADO
+    const documentoAprobado = await this.prisma.consentDocument.findFirst({
+      where: { kind, version: { contains: 'approved' } },
       orderBy: { publishedAt: 'desc' },
     });
+
+    const documento =
+      documentoAprobado ??
+      (await this.prisma.consentDocument.findFirst({
+        where: { kind },
+        orderBy: { publishedAt: 'desc' },
+      }));
+
     if (documento === null) throw new NotFoundError('No encontramos ese documento.');
+
+    const isApproved = documentoAprobado !== null;
+    const isProduction = this.config.NODE_ENV === 'production';
+
+    if (!isApproved && isProduction) {
+      throw new AppError(
+        'LEGAL_DOCUMENT_NOT_APPROVED',
+        'No hay una versión aprobada del documento legal para producción.',
+        412,
+      );
+    }
+
+    const warningBanner = !isApproved
+      ? 'AVISO DE DESARROLLO: Este texto es un borrador no vinculante para pruebas y desarrollo.'
+      : null;
+
+    const body = warningBanner ? `[${warningBanner}]\n\n${documento.body}` : documento.body;
 
     return {
       kind: documento.kind,
       version: documento.version,
       locale: documento.locale,
-      body: documento.body,
+      body,
       publishedAt: documento.publishedAt.toISOString(),
+      status: isApproved ? 'APPROVED' : 'DRAFT',
+      warningBanner,
     };
   }
 }

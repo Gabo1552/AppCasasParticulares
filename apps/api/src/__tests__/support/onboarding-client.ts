@@ -15,6 +15,7 @@ import { APP_CONFIG, type AppConfig } from '../../config/app-config';
  * que en este entorno apunta a Mailpit y falla en silencio si no está corriendo.
  */
 export async function bootTestApp(): Promise<INestApplication> {
+  process.env.FEATURE_TEST_SUPPORT_ENDPOINTS = 'true';
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
   const app = moduleRef.createNestApplication();
   configureApp(app, app.get<AppConfig>(APP_CONFIG));
@@ -99,35 +100,43 @@ export class ApiClient {
   async login(email: string): Promise<Session> {
     await this.post('/auth/request-code', { email }).expect(201);
 
+    const secret = process.env.TEST_SUPPORT_SECRET || 'test-support-secret-32-chars-length';
     const codeResponse = await request(this.server)
       .get('/api/v1/test-support/last-access-code')
+      .set('x-test-support-secret', secret)
       .query({ email })
       .expect(200);
 
     const code = (codeResponse.body as { code: string }).code;
     const verified = await this.post('/auth/verify-code', { email, code }).expect(201);
-    const body = verified.body as { userId: string; accessToken: string };
+    const body = verified.body as { userId: string; accessToken?: string };
+    const token = extractCookieToken(verified) ?? body.accessToken ?? '';
 
-    this.accessToken = body.accessToken;
-    return { email, userId: body.userId, accessToken: body.accessToken };
+    this.accessToken = token;
+    return { email, userId: body.userId, accessToken: token };
   }
 
   /**
    * Crea el perfil y adopta el access token nuevo.
    *
    * Crear el perfil otorga el rol, y el token con el que se hizo el request no
-   * lo declara: la API devuelve uno actualizado y el cliente lo adopta, igual
-   * que hace la web.
+   * lo declara: la API devuelve uno actualizado en la cookie HttpOnly y el cliente lo adopta.
    */
   async createProfile(kind: 'employer' | 'worker', body: object): Promise<void> {
     const response = await this.post(`/${kind}-profile`, body).expect(201);
-    this.accessToken = (response.body as { accessToken: string }).accessToken;
+    const token =
+      extractCookieToken(response) ?? (response.body as { accessToken?: string }).accessToken;
+    if (token) {
+      this.accessToken = token;
+    }
   }
 
   /** Token en claro de la última invitación enviada a ese correo. */
   async invitationToken(email: string): Promise<string> {
+    const secret = process.env.TEST_SUPPORT_SECRET || 'test-support-secret-32-chars-length';
     const response = await request(this.server)
       .get('/api/v1/test-support/invitation-token')
+      .set('x-test-support-secret', secret)
       .query({ email })
       .expect(200);
     return (response.body as { token: string }).token;
@@ -175,3 +184,16 @@ export const VALID_SCHEDULE = {
     { dayOfWeek: 5, startTime: '09:00', endTime: '15:00', breakMinutes: 30 },
   ],
 };
+
+function extractCookieToken(res: request.Response): string | null {
+  const setCookie = res.get('Set-Cookie');
+  if (!setCookie) return null;
+  const cookies = Array.isArray(setCookie) ? setCookie : [setCookie];
+  for (const cookie of cookies) {
+    if (cookie.startsWith('casas_access=')) {
+      const part = cookie.split(';')[0];
+      return part ? part.substring('casas_access='.length) : null;
+    }
+  }
+  return null;
+}

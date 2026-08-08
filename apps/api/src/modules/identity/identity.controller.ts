@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Inject, Post, Req, Res } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Inject, Param, Post, Req, Res } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { getCorrelationId } from '@casas/observability';
 import { requestCodeSchema, verifyCodeSchema } from '@casas/contracts';
@@ -51,11 +51,11 @@ export class IdentityController {
     body: { email: string; code: string; invitationToken?: string },
     @Req() request: RequestWithActor,
     @Res({ passthrough: true }) response: Response,
-  ): Promise<{ userId: string; csrfToken: string; accessToken: string }> {
+  ): Promise<{ userId: string; csrfToken: string }> {
     const session = await this.identity.verifyCode(body.email, body.code, contextOf(request));
     const csrfToken = setSessionCookies(response, this.config, session);
 
-    return { userId: session.userId, csrfToken, accessToken: session.accessToken };
+    return { userId: session.userId, csrfToken };
   }
 
   @Public()
@@ -64,7 +64,7 @@ export class IdentityController {
   async refresh(
     @Req() request: RequestWithActor,
     @Res({ passthrough: true }) response: Response,
-  ): Promise<{ csrfToken: string; accessToken: string }> {
+  ): Promise<{ csrfToken: string }> {
     const cookies = request.cookies as Record<string, string> | undefined;
     const refreshToken = cookies?.[REFRESH_TOKEN_COOKIE] ?? extractBodyRefreshToken(request);
 
@@ -75,7 +75,7 @@ export class IdentityController {
     const session = await this.identity.refresh(refreshToken, contextOf(request));
     const csrfToken = setSessionCookies(response, this.config, session);
 
-    return { csrfToken, accessToken: session.accessToken };
+    return { csrfToken };
   }
 
   @Post('logout')
@@ -87,6 +87,39 @@ export class IdentityController {
   ): Promise<{ ok: true }> {
     await this.identity.logout(actor.sessionId, actor.userId, contextOf(request));
     clearSessionCookies(response, this.config);
+    return { ok: true };
+  }
+
+  @Post('logout-all')
+  @ApiOperation({ summary: 'Cierra todas las sesiones activas del usuario' })
+  async logoutAll(
+    @Actor() actor: AuthenticatedActor,
+    @Req() request: RequestWithActor,
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<{ ok: true }> {
+    await this.identity.logoutAll(actor.userId, contextOf(request));
+    clearSessionCookies(response, this.config);
+    return { ok: true };
+  }
+
+  @Get('sessions')
+  @ApiOperation({ summary: 'Lista las sesiones activas e históricas del usuario' })
+  listSessions(@Actor() actor: AuthenticatedActor) {
+    return this.identity.listSessions(actor.userId, actor.sessionId);
+  }
+
+  @Delete('sessions/:id')
+  @ApiOperation({ summary: 'Revoca una sesión específica del usuario' })
+  async revokeSession(
+    @Actor() actor: AuthenticatedActor,
+    @Param('id') id: string,
+    @Req() request: RequestWithActor,
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<{ ok: true }> {
+    await this.identity.revokeSessionById(id, actor.userId, contextOf(request));
+    if (id === actor.sessionId) {
+      clearSessionCookies(response, this.config);
+    }
     return { ok: true };
   }
 

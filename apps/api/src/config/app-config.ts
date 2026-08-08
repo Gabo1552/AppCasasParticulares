@@ -69,6 +69,7 @@ export const appConfigSchema = z.object({
    * variable mal puesta abriría una puerta de entrada sin autenticación.
    */
   FEATURE_TEST_SUPPORT_ENDPOINTS: booleanFromString.default('false'),
+  TEST_SUPPORT_SECRET: z.string().min(16).default('test-support-secret-32-chars-length'),
 
   // ── Feature flags ─────────────────────────────────────────────────────────
   /**
@@ -134,6 +135,19 @@ export function loadAppConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       throw new Error(
         'FEATURE_TEST_SUPPORT_ENDPOINTS expone códigos de acceso y tokens de invitación ' +
           'sin autenticación. No puede habilitarse en producción.',
+      );
+    }
+  }
+
+  if (config.FEATURE_TEST_SUPPORT_ENDPOINTS) {
+    if (config.NODE_ENV !== 'test') {
+      throw new Error(
+        'FEATURE_TEST_SUPPORT_ENDPOINTS sólo puede habilitarse cuando NODE_ENV=test.',
+      );
+    }
+    if (!config.TEST_SUPPORT_SECRET || config.TEST_SUPPORT_SECRET.length < 16) {
+      throw new Error(
+        'FEATURE_TEST_SUPPORT_ENDPOINTS exige definir TEST_SUPPORT_SECRET con al menos 16 caracteres.',
       );
     }
   }

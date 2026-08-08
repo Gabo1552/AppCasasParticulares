@@ -78,6 +78,7 @@ jobs:
       JWT_REFRESH_SECRET: ci-only-refresh-secret-not-used-anywhere-else
       FIELD_ENCRYPTION_KEY: ci-only-field-encryption-key-32-chars
       FIELD_ENCRYPTION_KEY_ID: ci-key-1
+      FEATURE_TEST_SUPPORT_ENDPOINTS: 'true'
       # Se hornea en el bundle de Next durante el build, así que tiene que estar
       # antes del paso de build, no sólo al levantar el servidor.
       NEXT_PUBLIC_API_BASE_URL: http://localhost:3001

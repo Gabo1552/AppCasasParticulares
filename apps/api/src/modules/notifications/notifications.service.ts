@@ -1,6 +1,9 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { createTransport, type Transporter } from 'nodemailer';
 import { APP_CONFIG, type AppConfig } from '../../config/app-config';
+import { PrismaService, type PrismaTx } from '../../common/prisma/prisma.service';
+import { OutboxNotificationService } from './outbox-notification.service';
+import { TestNotificationSink } from './test-notification-sink';
 
 /**
  * Correo saliente.
@@ -16,7 +19,14 @@ export class NotificationsService {
   private readonly logger = new Logger(NotificationsService.name);
   private readonly transporter: Transporter;
 
-  constructor(@Inject(APP_CONFIG) private readonly config: AppConfig) {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly outbox: OutboxNotificationService,
+    @Optional()
+    @Inject(TestNotificationSink)
+    private readonly testSink: TestNotificationSink | null,
+    @Inject(APP_CONFIG) private readonly config: AppConfig,
+  ) {
     this.transporter = createTransport({
       host: config.SMTP_HOST,
       port: config.SMTP_PORT,
@@ -27,18 +37,18 @@ export class NotificationsService {
     });
   }
 
-  async sendAccessCode(to: string, code: string, ttlMinutes: number): Promise<void> {
-    await this.send({
+  async sendAccessCode(to: string, code: string, ttlMinutes: number, tx?: PrismaTx): Promise<void> {
+    if (this.testSink) {
+      this.testSink.recordAccessCode(to, code);
+    }
+
+    await this.outbox.enqueueEmail(tx ?? this.prisma, {
       to,
       subject: 'Tu código de ingreso',
-      text: [
-        'Hola,',
-        '',
-        `Tu código para ingresar es: ${code}`,
-        '',
-        `Vence en ${ttlMinutes} minutos y sirve una sola vez.`,
-        'Si no pediste este código, podés ignorar este mensaje.',
-      ].join('\n'),
+      text: '',
+      isOtp: true,
+      rawOtp: code,
+      ttlMinutes,
     });
   }
 
@@ -145,16 +155,7 @@ export class NotificationsService {
   }
 
   private async send(message: { to: string; subject: string; text: string }): Promise<void> {
-    try {
-      await this.transporter.sendMail({ from: this.config.MAIL_FROM, ...message });
-    } catch (error: unknown) {
-      // Un fallo de correo no puede tumbar la operación de negocio: el código ya
-      // se generó y la invitación ya existe. Se registra y se sigue.
-      this.logger.error(
-        { to: message.to, subject: message.subject, error: (error as Error).message },
-        'No se pudo enviar el correo',
-      );
-    }
+    await this.outbox.enqueueEmail(this.prisma, message);
   }
 }
 

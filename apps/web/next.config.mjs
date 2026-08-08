@@ -3,6 +3,11 @@ const nextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
   transpilePackages: ['@casas/contracts'],
+  // `next dev` genera y reescribe apps/web/AGENTS.md y apps/web/CLAUDE.md en cada
+  // arranque. Son instrucciones de Next para asistentes de IA, no documentación
+  // del proyecto: aparecían como archivos sin seguimiento en cada sesión de
+  // desarrollo. La documentación del repositorio vive en docs/.
+  agentRules: false,
   async headers() {
     // Headers de seguridad (docs/security-model.md §5).
     return [
