@@ -35,6 +35,16 @@ const secret = (() => {
 })();
 
 export async function ultimoCodigo(request: APIRequestContext, email: string): Promise<string> {
+  for (let attempt = 0; attempt < 15; attempt++) {
+    const respuesta = await request.get(`${API_URL}/api/v1/test-support/last-access-code`, {
+      params: { email },
+      headers: { 'x-test-support-secret': secret },
+    });
+    if (respuesta.ok()) {
+      return ((await respuesta.json()) as { code: string }).code;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 300));
+  }
   const respuesta = await request.get(`${API_URL}/api/v1/test-support/last-access-code`, {
     params: { email },
     headers: { 'x-test-support-secret': secret },
@@ -44,6 +54,16 @@ export async function ultimoCodigo(request: APIRequestContext, email: string): P
 }
 
 export async function tokenInvitacion(request: APIRequestContext, email: string): Promise<string> {
+  for (let attempt = 0; attempt < 15; attempt++) {
+    const respuesta = await request.get(`${API_URL}/api/v1/test-support/invitation-token`, {
+      params: { email },
+      headers: { 'x-test-support-secret': secret },
+    });
+    if (respuesta.ok()) {
+      return ((await respuesta.json()) as { token: string }).token;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 300));
+  }
   const respuesta = await request.get(`${API_URL}/api/v1/test-support/invitation-token`, {
     params: { email },
     headers: { 'x-test-support-secret': secret },
