@@ -330,3 +330,4 @@ export type PayrollCalculationResponse = z.infer<typeof payrollCalculationRespon
 export type ApiError = z.infer<typeof apiErrorSchema>;
 
 export * from './onboarding';
+export * from './attendance';
