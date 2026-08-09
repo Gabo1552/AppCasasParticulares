@@ -124,3 +124,54 @@ export interface Profile {
   phone: string | null;
   timezone: string;
 }
+
+export type AttendanceStatus = 'OPEN' | 'PENDING_APPROVAL' | 'APPROVED' | 'DISPUTED' | 'LOCKED';
+
+export interface TimeEntryItem {
+  id: string;
+  kind: 'CLOCK_IN' | 'CLOCK_OUT' | 'BREAK_START' | 'BREAK_END';
+  status: string;
+  declaredAt: string;
+  receivedAt: string;
+  method: string;
+  note: string | null;
+  correctsTimeEntryId: string | null;
+}
+
+export interface AttendanceCorrectionItem {
+  id: string;
+  status: 'PENDING' | 'APPROVED' | 'REJECTED';
+  requestedByUserId: string;
+  reason: string;
+  originalClockInAt: string | null;
+  originalClockOutAt: string | null;
+  proposedClockInAt: string | null;
+  proposedClockOutAt: string | null;
+  resolvedAt: string | null;
+  resolvedByUserId: string | null;
+  resolutionNote: string | null;
+  createdAt: string;
+  version: number;
+}
+
+export interface AttendanceRecord {
+  id: string;
+  relationshipId: string;
+  date: string;
+  status: AttendanceStatus;
+  clockInAt: string | null;
+  clockOutAt: string | null;
+  effectiveClockInAt: string | null;
+  effectiveClockOutAt: string | null;
+  realMinutes: number;
+  computableMinutes: number;
+  approvedMinutes: number | null;
+  breakMinutes: number;
+  approvedAt: string | null;
+  approvedByUserId: string | null;
+  entries: TimeEntryItem[];
+  corrections: AttendanceCorrectionItem[];
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+}

@@ -111,3 +111,28 @@ export const ETIQUETAS_ESQUEMA: Record<string, string> = {
   MONTHLY: 'Mensual',
   HOURLY: 'Por hora',
 };
+
+const ETIQUETAS_ASISTENCIA: Record<string, string> = {
+  OPEN: 'En curso (ingresó)',
+  PENDING_APPROVAL: 'Pendiente de aprobación',
+  APPROVED: 'Aprobada',
+  DISPUTED: 'Corrección solicitada',
+  LOCKED: 'Período cerrado',
+};
+
+export function etiquetaAsistencia(status: string): string {
+  return ETIQUETAS_ASISTENCIA[status] ?? status;
+}
+
+export function tonoAsistencia(status: string): 'activa' | 'espera' | 'cerrada' {
+  switch (status) {
+    case 'APPROVED':
+      return 'activa';
+    case 'PENDING_APPROVAL':
+    case 'OPEN':
+    case 'DISPUTED':
+      return 'espera';
+    default:
+      return 'cerrada';
+  }
+}

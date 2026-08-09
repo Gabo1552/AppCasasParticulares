@@ -7,6 +7,7 @@ import { apiFetch, errorMessage } from '@/lib/api';
 import { PantallaProtegida } from '@/components/pantalla-protegida';
 import { Campo, Cargando, Error, Exito } from '@/components/ui';
 import { ResumenRelacion } from '@/components/resumen-relacion';
+import { FichajeTrabajadora } from '@/components/fichaje-trabajadora';
 import type { Relationship } from '@/lib/types';
 
 /**
@@ -114,7 +115,19 @@ function Contenido(): ReactNode {
         </div>
       )}
 
-      <ResumenRelacion relacion={relacion} />
+      {relacion.status === 'ACTIVE' ? (
+        <>
+          <FichajeTrabajadora relacion={relacion} />
+          <details className="tarjeta">
+            <summary>Ver condiciones de trabajo acordadas</summary>
+            <div style={{ marginTop: '1rem' }}>
+              <ResumenRelacion relacion={relacion} />
+            </div>
+          </details>
+        </>
+      ) : (
+        <ResumenRelacion relacion={relacion} />
+      )}
 
       {puedeDecidir && (
         <section className="tarjeta">

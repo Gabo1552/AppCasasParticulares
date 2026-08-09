@@ -19,6 +19,7 @@ import {
   type DatosHorario,
 } from '@/components/formulario-horario';
 import { ResumenRelacion, tonoRelacion } from '@/components/resumen-relacion';
+import { JornadasFamilia } from '@/components/jornadas-familia';
 import { etiquetaRelacion } from '@/lib/format';
 import type { Relationship } from '@/lib/types';
 
@@ -165,8 +166,19 @@ function Contenido(): ReactNode {
 
       <Error mensaje={error} />
       <Exito mensaje={aviso} />
+      {!editable && relacion.status === 'ACTIVE' && (
+        <>
+          <JornadasFamilia relacion={relacion} />
+          <details className="tarjeta">
+            <summary>Ver condiciones y horario configurados</summary>
+            <div style={{ marginTop: '1rem' }}>
+              <ResumenRelacion relacion={relacion} />
+            </div>
+          </details>
+        </>
+      )}
 
-      {!editable && <ResumenRelacion relacion={relacion} />}
+      {!editable && relacion.status !== 'ACTIVE' && <ResumenRelacion relacion={relacion} />}
 
       {editable && (
         <>
