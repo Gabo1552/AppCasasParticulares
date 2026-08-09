@@ -183,8 +183,8 @@ describe('Pruebas de Integración PostgreSQL — Fichaje, Corrección y Aprobaci
 
     // Verificar geolocalización preservada con coordenadas (0, 0)
     const dbInEntry = dbWorkDay?.timeEntries.find((e) => e.kind === 'CLOCK_IN');
-    expect(dbInEntry?.geoLat).toBe(0);
-    expect(dbInEntry?.geoLng).toBe(0);
+    expect(Number(dbInEntry?.geoLat)).toBe(0);
+    expect(Number(dbInEntry?.geoLng)).toBe(0);
 
     // Verificar auditoría persistida en PostgreSQL
     const auditEvents = await prismaEmployer.auditEvent.findMany({
