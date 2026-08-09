@@ -47,10 +47,12 @@ test.describe('E3.7–E3.8: Fichaje, correcciones y aprobación de jornadas', ()
       await familia.page.goto('/familia/invitaciones/nueva');
       await familia.page.getByLabel('Correo de la trabajadora').fill(trabajadora.email);
       await familia.page.getByRole('button', { name: 'Enviar invitación' }).click();
+      await expect(familia.page).toHaveURL(/\/familia\/invitaciones/);
+      await expect(familia.page.getByText('Enviamos la invitación por correo.')).toBeVisible();
 
       const token = await tokenInvitacion(familia.page.request, trabajadora.email);
 
-      // Trabajadora acepta
+      // Trabajadora ingresa y crea perfil
       await trabajadora.page.goto(`/invitacion/${token}`);
       await trabajadora.page.getByRole('link', { name: /Ingresar con/ }).click();
       await ingresar(trabajadora.page, trabajadora.email);
@@ -60,14 +62,18 @@ test.describe('E3.7–E3.8: Fichaje, correcciones y aprobación de jornadas', ()
         apellido: 'López',
         telefono: '+54 11 3333-2222',
       });
-      await trabajadora.page.getByRole('button', { name: 'Aceptar invitación' }).click();
+
+      // Trabajadora acepta la invitación
+      await trabajadora.page.goto(`/invitacion/${token}`);
+      await trabajadora.page.getByRole('button', { name: 'Aceptar la invitación' }).click();
+      await expect(trabajadora.page).toHaveURL(/\/trabajadora\/relaciones\//);
 
       // Familia configura condiciones y horario
       await familia.page.goto('/familia');
-      await familia.page.getByRole('link', { name: 'Completar condiciones' }).click();
+      await familia.page.getByRole('link', { name: 'Continuar' }).first().click();
+      await expect(familia.page).toHaveURL(/\/familia\/relaciones\//);
       await cargarCondiciones(familia.page);
       await cargarHorario(familia.page);
-      await familia.page.getByRole('button', { name: 'Enviar a la trabajadora' }).click();
 
       // Trabajadora acepta condiciones -> pasa a ACTIVE
       await trabajadora.page.goto('/trabajadora');
