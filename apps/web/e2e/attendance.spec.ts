@@ -115,7 +115,7 @@ test.describe('E3.7–E3.8: Fichaje, correcciones y aprobación de jornadas', ()
         await expect(
           trabajadora.page.getByText('¡Fichaste la salida correctamente!'),
         ).toBeVisible();
-        await expect(trabajadora.page.getByText('Pendiente de aprobación')).toBeVisible();
+        await expect(trabajadora.page.getByText('Pendiente de aprobación').first()).toBeVisible();
       });
 
       // ── E3.8: Revisión y aprobación por la familia ─────────────────────────
@@ -130,13 +130,13 @@ test.describe('E3.7–E3.8: Fichaje, correcciones y aprobación de jornadas', ()
         await botonAprobar.click();
 
         await expect(familia.page.getByText('Aprobaste la jornada de trabajo.')).toBeVisible();
-        await expect(familia.page.getByText('Aprobada')).toBeVisible();
+        await expect(familia.page.getByText('Aprobada').first()).toBeVisible();
       });
 
       await test.step('Trabajadora ve la jornada aprobada con su tiempo computado', async () => {
         await trabajadora.page.goto(`/trabajadora/relaciones/${relacionId}`);
         await expect(
-          trabajadora.page.getByText(/Jornada aprobada por la familia empleadora/),
+          trabajadora.page.getByText(/Jornada aprobada por la familia empleadora/).first(),
         ).toBeVisible();
       });
     } finally {
