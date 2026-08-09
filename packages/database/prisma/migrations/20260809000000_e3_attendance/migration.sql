@@ -10,6 +10,10 @@ CREATE INDEX "work_day_employmentRelationshipId_status_idx"
 
 -- ─── Correcciones de asistencia (AttendanceCorrection) ────────────────────────
 
+-- Drop previous foreign key constraint before altering column nullability
+ALTER TABLE "attendance_correction"
+    DROP CONSTRAINT "attendance_correction_timeEntryId_fkey";
+
 ALTER TABLE "attendance_correction"
     ADD COLUMN "workDayId" UUID,
     ADD COLUMN "originalClockInAt" TIMESTAMP(3),
@@ -21,6 +25,11 @@ ALTER TABLE "attendance_correction"
 
 CREATE INDEX "attendance_correction_workDayId_status_idx"
     ON "attendance_correction"("workDayId", "status");
+
+ALTER TABLE "attendance_correction"
+    ADD CONSTRAINT "attendance_correction_timeEntryId_fkey"
+    FOREIGN KEY ("timeEntryId") REFERENCES "time_entry"("id")
+    ON DELETE SET NULL ON UPDATE CASCADE;
 
 ALTER TABLE "attendance_correction"
     ADD CONSTRAINT "attendance_correction_workDayId_fkey"
