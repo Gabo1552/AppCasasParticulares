@@ -1,10 +1,5 @@
 import { describe, expect, it, beforeAll, afterAll } from 'vitest';
-import {
-  PrismaClient,
-  PlatformRole,
-  WorkDayStatus,
-  TimeEntryStatus,
-} from '@casas/database';
+import { PrismaClient, PlatformRole, WorkDayStatus, TimeEntryStatus } from '@casas/database';
 import { ResourceVersionConflictError } from '@casas/domain';
 import { TimeTrackingService } from '../../modules/time-tracking/time-tracking.service';
 import { AttendanceCorrectionsService } from '../../modules/attendance-corrections/attendance-corrections.service';
