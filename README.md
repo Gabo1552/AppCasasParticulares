@@ -140,36 +140,29 @@ textual completa en [`docs/requirements-extract.md`](docs/requirements-extract.m
 
 ## Estado actual
 
-**Etapa 2 (base técnica) completa. Etapa 3, pasos 1 a 6, completos.**
+**Etapa 2 (base técnica) completa. Etapa 3, pasos 1 a 8, completos.**
 
-El recorrido de onboarding funciona de punta a punta desde el navegador, contra PostgreSQL real:
-una familia se registra, crea su perfil y su domicilio, invita a una trabajadora, ella acepta, la
-familia carga las condiciones y el horario semanal, y la relación queda activa **sólo** cuando la
-trabajadora acepta esas condiciones.
+El recorrido de onboarding y fichaje funciona de punta a punta:
 
-Los pasos 7 a 16 —fichaje, liquidación, ARCA, pagos y conciliación— siguen pendientes
-(ver [`docs/implementation-roadmap.md`](docs/implementation-roadmap.md)). Para recorrerlo a mano,
-[`docs/e3-onboarding-manual-test.md`](docs/e3-onboarding-manual-test.md).
+1. Una familia se registra, crea su perfil y su domicilio laboral.
+2. Invita a una trabajadora, ella acepta.
+3. La familia carga las condiciones y el horario semanal.
+4. La relación queda activa **sólo** cuando la trabajadora acepta esas condiciones.
+5. La trabajadora ficha entrada y salida en relaciones activas (`E3.7`).
+6. La familia revisa, gestiona correcciones y aprueba las jornadas (`E3.8`).
+
+Los pasos 9 a 16 —período mensual, preliquidación, ARCA, pagos y conciliación— siguen pendientes
+(ver [`docs/implementation-roadmap.md`](docs/implementation-roadmap.md)).
 
 ### Lo que ya funciona y está probado
 
-**262 pruebas unitarias, 48 de integración contra PostgreSQL real, 4 recorridos E2E en navegador y
-11 verificaciones de principios.**
-
-| Pieza                                                                           | Estado            |
-| ------------------------------------------------------------------------------- | ----------------- |
-| `Money` con decimal exacto, `Minutes`, `DateRange`, `MaskedAccount`             | 65 pruebas        |
-| Máquinas de estado de relación, período y fichaje                               | incluidas arriba  |
-| Motor de liquidación con los 13 escenarios del encargo                          | 56 pruebas        |
-| Redacción de datos sensibles en logs                                            | 11 pruebas        |
-| Esquemas Zod compartidos                                                        | 18 pruebas        |
-| Conectores ARCA, `ManualTransferProvider`, policies y arranque de la aplicación | 52 pruebas        |
-| Identidad: OTP, vencimiento, intentos, rotación de refresh, reutilización       | 16 pruebas        |
-| Invitaciones: token, un solo uso, vencimiento, baja, reenvío, correo ajeno      | 15 pruebas        |
-| Contratos del onboarding: perfiles, domicilio, condiciones, calendario          | 26 pruebas        |
-| Invariantes y recorrido completo contra PostgreSQL real (ver abajo)             | 48 pruebas        |
-| Recorrido de la familia y la trabajadora en Chromium                            | 4 pruebas E2E     |
-| Verificación de principios del encargo                                          | 11 verificaciones |
+- **Autenticación segura por OTP** con Transactional Outbox.
+- **Sesiones con revocación distribuida** en Redis.
+- **Perfiles, domicilios e invitaciones** con control estricto de propiedad por objeto.
+- **Aceptación bilateral de condiciones** con evidencia criptográfica inmutable.
+- **Fichaje de entrada y salida (E3.7)** con idempotencia, validación en servidor y estado `ACTIVE` obligatorio.
+- **Revisión, corrección y aprobación (E3.8)** con historial auditable, cálculo determinista de minutos aprobados y control de concurrencia optimista (409).
+- **Cobertura exhaustiva** de pruebas unitarias, integración contra PostgreSQL real y tests E2E con Playwright.
 
 Lo verificado **contra una base de datos real** en cada corrida de CI, no sólo afirmado:
 

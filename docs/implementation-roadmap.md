@@ -88,25 +88,35 @@ Exactamente los 16 pasos del encargo. Cada uno es una historia con test.
 | 4   | La trabajadora acepta                   | `workers`, `employment-relationships`        | REL-01, REL-08                 | ✅ Completo |
 | 5   | La familia configura la relación        | `employment-relationships`                   | REL-02, REL-03, REL-05         | ✅ Completo |
 | 6   | Se genera un calendario semanal         | `work-schedules`                             | REL-04                         | ✅ Completo |
-| 7   | La trabajadora ficha entrada y salida   | `time-tracking`                              | FIC-01, FIC-02, FIC-05         |
-| 8   | La familia aprueba el fichaje           | `time-tracking`, `attendance-corrections`    | FIC-06, FIC-07                 |
-| 9   | Se abre un período mensual              | `payroll-periods`                            | LIQ-01                         |
-| 10  | Se calcula la preliquidación (fixtures) | `payroll-calculations`, `payroll-parameters` | LIQ-02, LIQ-04, LIQ-11         |
-| 11  | La familia ve el detalle de conceptos   | `payroll-calculations`, web                  | LIQ-11, LIQ-14                 |
-| 12  | Se genera una tarea ARCA asistida       | `arca-tasks`                                 | ARC-01, ARC-02, ARC-04         |
-| 13  | Se carga un recibo de prueba            | `arca-documents`, `documents`                | ARC-05, DOC-01, DOC-04         |
-| 14  | Se registra una transferencia manual    | `payments`                                   | PAG-01, PAG-05, PAG-07, PAG-10 |
-| 15  | El período queda conciliado             | `reconciliation`                             | ARC-07, PAG-06                 |
-| 16  | Todo queda auditado                     | `audit`                                      | SEG-08                         |
+| 7   | La trabajadora ficha entrada y salida   | `time-tracking`                              | FIC-01, FIC-02, FIC-05         | ✅ Completo |
+| 8   | La familia aprueba el fichaje           | `time-tracking`, `attendance-corrections`    | FIC-06, FIC-07                 | ✅ Completo |
+| 9   | Se abre un período mensual              | `payroll-periods`                            | LIQ-01                         |             |
+| 10  | Se calcula la preliquidación (fixtures) | `payroll-calculations`, `payroll-parameters` | LIQ-02, LIQ-04, LIQ-11         |             |
+| 11  | La familia ve el detalle de conceptos   | `payroll-calculations`, web                  | LIQ-11, LIQ-14                 |             |
+| 12  | Se genera una tarea ARCA asistida       | `arca-tasks`                                 | ARC-01, ARC-02, ARC-04         |             |
+| 13  | Se carga un recibo de prueba            | `arca-documents`, `documents`                | ARC-05, DOC-01, DOC-04         |             |
+| 14  | Se registra una transferencia manual    | `payments`                                   | PAG-01, PAG-05, PAG-07, PAG-10 |             |
+| 15  | El período queda conciliado             | `reconciliation`                             | ARC-07, PAG-06                 |             |
+| 16  | Todo queda auditado                     | `audit`                                      | SEG-08                         |             |
 
-Los pasos 7 a 16 siguen pendientes; la tabla los conserva sin marca de estado.
+Los pasos 1 a 8 están completados y verificados. Los pasos 9 a 16 siguen pendientes.
 
 **Criterio de salida**: un test E2E de Playwright recorre los 16 pasos; la tabla `audit_event` contiene
 los 15 tipos de evento esperados; el período llega a `RECONCILED`.
 
-### Estado de los pasos 1 a 6
+### Estado de los pasos 1 a 8
 
 Entregados y verificados contra PostgreSQL real y en navegador:
+
+- **Autenticación** por código de un solo uso enviado por correo con Transactional Outbox.
+- **Sesiones** con refresh rotativo y revocación distribuida en Redis.
+- **Perfiles** de familia y trabajadora.
+- **Domicilios** con verificación de propiedad por objeto.
+- **Invitaciones** con tokens hasheados de un solo uso.
+- **Condiciones y calendario**, con cálculo exacto de remuneración y control de concurrencia optimista.
+- **Activación bilateral** mediante evidencia criptográfica inmutable.
+- **Fichaje de entrada y salida (E3.7)** con idempotencia, registro en servidor y validación de relación activa.
+- **Revisión, correcciones y aprobación (E3.8)** con historial de valores propuestos, minutos aprobados deterministas y prevención de concurrencia stale (409).
 
 - **Autenticación** por código de un solo uso enviado por correo. Sin contraseñas y sin OAuth. El
   código se guarda como HMAC ligado al destino, vence a los 10 minutos, admite 5 intentos y está
