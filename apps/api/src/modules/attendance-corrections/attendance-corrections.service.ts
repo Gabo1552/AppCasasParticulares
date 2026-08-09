@@ -107,6 +107,23 @@ export class AttendanceCorrectionsService {
     }
 
     const resultWorkDay = await this.prisma.$transaction(async (tx: PrismaTx) => {
+      const updateResult = await tx.workDay.updateMany({
+        where: {
+          id: workDay.id,
+          version: input.expectedVersion,
+        },
+        data: {
+          status: WorkDayStatus.DISPUTED,
+          version: { increment: 1 },
+        },
+      });
+
+      if (updateResult.count === 0) {
+        throw new ResourceVersionConflictError(
+          'La jornada cambió mientras la estabas revisando. Actualizamos la información para que puedas revisarla nuevamente.',
+        );
+      }
+
       const correction = await tx.attendanceCorrection.create({
         data: {
           workDayId: workDay.id,
@@ -118,15 +135,6 @@ export class AttendanceCorrectionsService {
           proposedClockInAt,
           proposedClockOutAt,
         },
-      });
-
-      const updatedWorkDay = await tx.workDay.update({
-        where: { id: workDay.id },
-        data: {
-          status: WorkDayStatus.DISPUTED,
-          version: { increment: 1 },
-        },
-        include: FULL_WORKDAY_INCLUDE,
       });
 
       await this.audit.record(tx, {
@@ -157,7 +165,10 @@ export class AttendanceCorrectionsService {
         });
       }
 
-      return updatedWorkDay;
+      return tx.workDay.findUniqueOrThrow({
+        where: { id: workDay.id },
+        include: FULL_WORKDAY_INCLUDE,
+      });
     });
 
     return toAttendanceView(resultWorkDay);
@@ -222,6 +233,28 @@ export class AttendanceCorrectionsService {
     const timezone = workDay.relationship.household.timezone ?? 'America/Argentina/Buenos_Aires';
 
     const resultWorkDay = await this.prisma.$transaction(async (tx: PrismaTx) => {
+      const updateResult = await tx.workDay.updateMany({
+        where: {
+          id: workDay.id,
+          version: expectedVersion,
+        },
+        data: {
+          status: WorkDayStatus.APPROVED,
+          realMinutes,
+          computableMinutes,
+          approvedMinutes: computableMinutes,
+          approvedAt: new Date(),
+          approvedByUserId: actor.userId,
+          version: { increment: 1 },
+        },
+      });
+
+      if (updateResult.count === 0) {
+        throw new ResourceVersionConflictError(
+          'La jornada cambió mientras la estabas revisando. Actualizamos la información para que puedas revisarla nuevamente.',
+        );
+      }
+
       await tx.attendanceCorrection.update({
         where: { id: correctionId },
         data: {
@@ -288,20 +321,6 @@ export class AttendanceCorrectionsService {
         },
       });
 
-      const updated = await tx.workDay.update({
-        where: { id: workDay.id },
-        data: {
-          status: WorkDayStatus.APPROVED,
-          realMinutes,
-          computableMinutes,
-          approvedMinutes: computableMinutes,
-          approvedAt: new Date(),
-          approvedByUserId: actor.userId,
-          version: { increment: 1 },
-        },
-        include: FULL_WORKDAY_INCLUDE,
-      });
-
       await this.audit.record(tx, {
         action: AuditAction.ATTENDANCE_CORRECTION_APPROVED,
         entityType: 'AttendanceCorrection',
@@ -327,7 +346,10 @@ export class AttendanceCorrectionsService {
         });
       }
 
-      return updated;
+      return tx.workDay.findUniqueOrThrow({
+        where: { id: workDay.id },
+        include: FULL_WORKDAY_INCLUDE,
+      });
     });
 
     return toAttendanceView(resultWorkDay);
@@ -379,6 +401,23 @@ export class AttendanceCorrectionsService {
     const targetStatus = hasClockOut ? WorkDayStatus.PENDING_APPROVAL : WorkDayStatus.OPEN;
 
     const resultWorkDay = await this.prisma.$transaction(async (tx: PrismaTx) => {
+      const updateResult = await tx.workDay.updateMany({
+        where: {
+          id: workDay.id,
+          version: input.expectedVersion,
+        },
+        data: {
+          status: targetStatus,
+          version: { increment: 1 },
+        },
+      });
+
+      if (updateResult.count === 0) {
+        throw new ResourceVersionConflictError(
+          'La jornada cambió mientras la estabas revisando. Actualizamos la información para que puedas revisarla nuevamente.',
+        );
+      }
+
       await tx.attendanceCorrection.update({
         where: { id: correctionId },
         data: {
@@ -388,15 +427,6 @@ export class AttendanceCorrectionsService {
           resolutionNote: input.reason ?? null,
           version: { increment: 1 },
         },
-      });
-
-      const updated = await tx.workDay.update({
-        where: { id: workDay.id },
-        data: {
-          status: targetStatus,
-          version: { increment: 1 },
-        },
-        include: FULL_WORKDAY_INCLUDE,
       });
 
       await this.audit.record(tx, {
@@ -422,7 +452,10 @@ export class AttendanceCorrectionsService {
         });
       }
 
-      return updated;
+      return tx.workDay.findUniqueOrThrow({
+        where: { id: workDay.id },
+        include: FULL_WORKDAY_INCLUDE,
+      });
     });
 
     return toAttendanceView(resultWorkDay);

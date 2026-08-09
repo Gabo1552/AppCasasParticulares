@@ -31,6 +31,7 @@ describe('TimeTrackingService (unit)', () => {
       findMany: ReturnType<typeof vi.fn>;
       create: ReturnType<typeof vi.fn>;
       update: ReturnType<typeof vi.fn>;
+      updateMany: ReturnType<typeof vi.fn>;
     };
     $transaction: ReturnType<typeof vi.fn>;
   };
@@ -91,6 +92,7 @@ describe('TimeTrackingService (unit)', () => {
         findMany: vi.fn(),
         create: vi.fn(),
         update: vi.fn(),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       },
       $transaction: vi.fn(async (cb: (tx: unknown) => Promise<unknown>) => cb(prisma)),
     };
@@ -403,6 +405,7 @@ describe('TimeTrackingService (unit)', () => {
       };
 
       prisma.workDay.update.mockResolvedValue(approvedWorkDay);
+      prisma.workDay.findUniqueOrThrow.mockResolvedValue(approvedWorkDay);
 
       const result = await service.approve(employerActor, 'wd-1', { expectedVersion: 1 });
 

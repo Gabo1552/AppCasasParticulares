@@ -21,7 +21,9 @@ describe('AttendanceCorrectionsService (unit)', () => {
   let prisma: {
     workDay: {
       findUnique: ReturnType<typeof vi.fn>;
+      findUniqueOrThrow: ReturnType<typeof vi.fn>;
       update: ReturnType<typeof vi.fn>;
+      updateMany: ReturnType<typeof vi.fn>;
     };
     timeEntry: {
       create: ReturnType<typeof vi.fn>;
@@ -77,7 +79,9 @@ describe('AttendanceCorrectionsService (unit)', () => {
     prisma = {
       workDay: {
         findUnique: vi.fn(),
+        findUniqueOrThrow: vi.fn(),
         update: vi.fn(),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       },
       timeEntry: {
         create: vi.fn(),
@@ -172,6 +176,7 @@ describe('AttendanceCorrectionsService (unit)', () => {
 
       prisma.attendanceCorrection.create.mockResolvedValue({ id: 'corr-1' });
       prisma.workDay.update.mockResolvedValue(updatedWorkDay);
+      prisma.workDay.findUniqueOrThrow.mockResolvedValue(updatedWorkDay);
 
       const result = await service.requestCorrection(workerActor, 'wd-1', {
         reason: 'Me olvidé de fichar salida a las 17:00',
@@ -294,6 +299,7 @@ describe('AttendanceCorrectionsService (unit)', () => {
       };
 
       prisma.workDay.update.mockResolvedValue(approvedWorkDay);
+      prisma.workDay.findUniqueOrThrow.mockResolvedValue(approvedWorkDay);
 
       const result = await service.approveCorrection(employerActor, 'wd-1', 'corr-1', 2);
 
@@ -369,6 +375,7 @@ describe('AttendanceCorrectionsService (unit)', () => {
       };
 
       prisma.workDay.update.mockResolvedValue(rejectedWorkDay);
+      prisma.workDay.findUniqueOrThrow.mockResolvedValue(rejectedWorkDay);
 
       const result = await service.rejectCorrection(employerActor, 'wd-1', 'corr-1', {
         reason: 'No coincide con lo acordado',

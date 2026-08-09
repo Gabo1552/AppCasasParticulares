@@ -211,6 +211,24 @@ export class TimeTrackingService {
     const localDate = new Date(`${dateStr}T00:00:00.000Z`);
 
     const resultWorkDay = await this.prisma.$transaction(async (tx: PrismaTx) => {
+      // Si ya existía un fichaje con esta clave de idempotencia en la relación, devolverlo
+      if (clientIdempotencyKey) {
+        const existingEntry = await tx.timeEntry.findUnique({
+          where: {
+            employmentRelationshipId_clientIdempotencyKey: {
+              employmentRelationshipId: relationshipId,
+              clientIdempotencyKey,
+            },
+          },
+        });
+        if (existingEntry && existingEntry.workDayId) {
+          return tx.workDay.findUniqueOrThrow({
+            where: { id: existingEntry.workDayId },
+            include: FULL_WORKDAY_INCLUDE,
+          });
+        }
+      }
+
       // Buscar o crear la jornada para esta fecha
       let workDay = await tx.workDay.findUnique({
         where: {
@@ -222,16 +240,27 @@ export class TimeTrackingService {
       });
 
       if (workDay === null) {
-        workDay = await tx.workDay.create({
-          data: {
-            employmentRelationshipId: relationshipId,
-            date: localDate,
-            status: WorkDayStatus.OPEN,
-            createdByUserId: actor.userId,
-            realMinutes: 0,
-            computableMinutes: 0,
-          },
-        });
+        try {
+          workDay = await tx.workDay.create({
+            data: {
+              employmentRelationshipId: relationshipId,
+              date: localDate,
+              status: WorkDayStatus.OPEN,
+              createdByUserId: actor.userId,
+              realMinutes: 0,
+              computableMinutes: 0,
+            },
+          });
+        } catch {
+          workDay = await tx.workDay.findUniqueOrThrow({
+            where: {
+              employmentRelationshipId_date: {
+                employmentRelationshipId: relationshipId,
+                date: localDate,
+              },
+            },
+          });
+        }
       } else if (workDay.status !== WorkDayStatus.OPEN) {
         // Reabrir para nueva entrada si correspondiera
         workDay = await tx.workDay.update({
@@ -527,8 +556,11 @@ export class TimeTrackingService {
     const approvedMinutes = workDay.computableMinutes;
 
     const resultWorkDay = await this.prisma.$transaction(async (tx: PrismaTx) => {
-      const updated = await tx.workDay.update({
-        where: { id: workDay.id },
+      const updateResult = await tx.workDay.updateMany({
+        where: {
+          id: workDay.id,
+          version: input.expectedVersion,
+        },
         data: {
           status: WorkDayStatus.APPROVED,
           approvedMinutes,
@@ -536,8 +568,13 @@ export class TimeTrackingService {
           approvedByUserId: actor.userId,
           version: { increment: 1 },
         },
-        include: FULL_WORKDAY_INCLUDE,
       });
+
+      if (updateResult.count === 0) {
+        throw new ResourceVersionConflictError(
+          'La jornada cambió mientras la estabas revisando. Actualizamos la información para que puedas revisarla nuevamente.',
+        );
+      }
 
       await tx.timeEntry.updateMany({
         where: {
@@ -561,7 +598,6 @@ export class TimeTrackingService {
         after: {
           status: WorkDayStatus.APPROVED,
           approvedMinutes,
-          approvedAt: updated.approvedAt?.toISOString(),
         },
       });
 
@@ -573,7 +609,10 @@ export class TimeTrackingService {
         });
       }
 
-      return updated;
+      return tx.workDay.findUniqueOrThrow({
+        where: { id: workDay.id },
+        include: FULL_WORKDAY_INCLUDE,
+      });
     });
 
     return toAttendanceView(resultWorkDay);
