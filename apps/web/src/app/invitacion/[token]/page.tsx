@@ -50,8 +50,8 @@ export default function VerInvitacion(): ReactNode {
         method: 'POST',
         body: { token },
       });
-      await recargar();
-      router.replace(`/trabajadora/relaciones/${resultado.relationshipId}`);
+      void recargar();
+      router.push(`/trabajadora/relaciones/${resultado.relationshipId}`);
     } catch (causa) {
       setErrorAccion(errorMessage(causa));
       setEnviando(false);
