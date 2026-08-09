@@ -26,8 +26,6 @@ export type AttendanceCorrectionStatus = z.infer<typeof attendanceCorrectionStat
 
 export const clockInRequestSchema = z
   .object({
-    declaredAt: isoDateTimeSchema.optional(),
-    timezone: z.string().trim().min(3).max(64).optional(),
     method: clockInMethodSchema.default('BUTTON'),
     deviceId: z.string().max(120).optional(),
     deviceLabel: z.string().max(120).optional(),
@@ -46,7 +44,6 @@ export const clockInRequestSchema = z
 
 export const clockOutRequestSchema = z
   .object({
-    declaredAt: isoDateTimeSchema.optional(),
     clientIdempotencyKey: uuidSchema.optional(),
     note: z.string().trim().max(500).optional(),
   })
