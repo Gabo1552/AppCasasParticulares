@@ -74,12 +74,16 @@ test.describe('E3.7–E3.8: Fichaje, correcciones y aprobación de jornadas', ()
       await expect(familia.page).toHaveURL(/\/familia\/relaciones\//);
       await cargarCondiciones(familia.page);
       await cargarHorario(familia.page);
+      await familia.page.getByRole('button', { name: 'Enviar a la trabajadora' }).click();
+      await expect(familia.page.getByText('Esperando aceptación').first()).toBeVisible();
 
       // Trabajadora acepta condiciones -> pasa a ACTIVE
       await trabajadora.page.goto('/trabajadora');
       await trabajadora.page.getByRole('link', { name: 'Revisar las condiciones' }).click();
       await trabajadora.page.getByRole('button', { name: 'Acepto estas condiciones' }).click();
-      await expect(trabajadora.page.getByText('La relación laboral quedó activa')).toBeVisible();
+      await expect(
+        trabajadora.page.getByText('Aceptaste las condiciones. La relación laboral quedó activa.'),
+      ).toBeVisible();
 
       // Extraer ID de la relación desde la URL
       const urlRelacion = trabajadora.page.url();

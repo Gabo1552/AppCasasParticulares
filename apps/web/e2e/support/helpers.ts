@@ -117,3 +117,28 @@ export async function cargarDomicilio(page: Page): Promise<void> {
   await page.getByLabel('Código postal').fill(DOMICILIO.codigoPostal);
   await page.getByRole('button', { name: 'Guardar domicilio' }).click();
 }
+
+/** Carga las condiciones acordadas en la pantalla de la relación. */
+export async function cargarCondiciones(page: Page): Promise<void> {
+  await page.getByLabel('Fecha prevista de inicio').fill('2026-09-01');
+  await page.getByLabel('Categoría de tareas').selectOption('TAREAS_GENERALES');
+  await page.getByLabel('Modalidad').selectOption('WITH_WITHDRAWAL');
+  await page.getByLabel('Forma de la remuneración').selectOption('MONTHLY');
+  await page.getByLabel('Remuneración mensual acordada (ARS)').fill('350000.00');
+  await page.getByLabel('Horas semanales estimadas').fill('18');
+  await page.getByLabel('Día de pago habitual (opcional)').fill('5');
+  await page.getByRole('button', { name: 'Guardar condiciones' }).click();
+  await expect(page.getByText('Guardamos las condiciones.')).toBeVisible();
+}
+
+/** Carga el horario semanal. */
+export async function cargarHorario(page: Page): Promise<void> {
+  for (const dia of ['lunes', 'miércoles', 'viernes']) {
+    await page.getByLabel(`Trabaja el ${dia}`).check();
+    await page.getByLabel(`Entrada del ${dia}`).fill('09:00');
+    await page.getByLabel(`Salida del ${dia}`).fill('15:00');
+    await page.getByLabel(`Pausa del ${dia} en minutos`).fill('30');
+  }
+  await page.getByRole('button', { name: 'Guardar horario' }).click();
+  await expect(page.getByText('Guardamos el horario semanal.')).toBeVisible();
+}
