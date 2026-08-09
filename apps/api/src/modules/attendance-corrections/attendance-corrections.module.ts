@@ -1,20 +1,29 @@
 import { Module } from '@nestjs/common';
+import { PrismaService } from '../../common/prisma/prisma.service';
+import { AuditService } from '../../common/audit/audit.service';
+import { FieldEncryptionService } from '../../common/crypto/field-encryption.service';
+import { APP_CONFIG, loadAppConfig, type AppConfig } from '../../config/app-config';
+import { OutboxNotificationService } from '../notifications/outbox-notification.service';
+import { AttendanceCorrectionsController } from './attendance-corrections.controller';
+import { AttendanceCorrectionsService } from './attendance-corrections.service';
 
 /**
  * Módulo AttendanceCorrections.
  *
- * Solicitud y aprobación de correcciones. El fichaje original nunca se borra.
- *
- * Requerimientos que cubre: FIC-06, FIC-07.
- *
- * Estado: declarado en la Etapa 2 (base técnica). Los casos de uso se implementan
- * en la Etapa 3 (recorrido vertical), según docs/implementation-roadmap.md.
- * Anatomía esperada del módulo: docs/architecture.md §5.
+ * Solicitud, revisión, aprobación y rechazo de correcciones de jornada.
+ * Requerimientos: E3.8, FIC-06, FIC-07.
  */
 @Module({
   imports: [],
-  controllers: [],
-  providers: [],
-  exports: [],
+  controllers: [AttendanceCorrectionsController],
+  providers: [
+    { provide: APP_CONFIG, useFactory: (): AppConfig => loadAppConfig() },
+    PrismaService,
+    AuditService,
+    FieldEncryptionService,
+    OutboxNotificationService,
+    AttendanceCorrectionsService,
+  ],
+  exports: [AttendanceCorrectionsService],
 })
 export class AttendanceCorrectionsModule {}
