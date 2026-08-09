@@ -100,7 +100,7 @@ export class ApiClient {
   async login(email: string): Promise<Session> {
     await this.post('/auth/request-code', { email }).expect(201);
 
-    const secret = process.env.TEST_SUPPORT_SECRET || 'test-support-secret-32-chars-length';
+    const secret = requireTestSupportSecret();
     const codeResponse = await request(this.server)
       .get('/api/v1/test-support/last-access-code')
       .set('x-test-support-secret', secret)
@@ -133,7 +133,7 @@ export class ApiClient {
 
   /** Token en claro de la última invitación enviada a ese correo. */
   async invitationToken(email: string): Promise<string> {
-    const secret = process.env.TEST_SUPPORT_SECRET || 'test-support-secret-32-chars-length';
+    const secret = requireTestSupportSecret();
     const response = await request(this.server)
       .get('/api/v1/test-support/invitation-token')
       .set('x-test-support-secret', secret)
@@ -196,4 +196,18 @@ function extractCookieToken(res: request.Response): string | null {
     }
   }
   return null;
+}
+
+/**
+ * Sin valor por defecto: un secreto incrustado en el repositorio no es un
+ * secreto, y además enmascara una configuración faltante detrás de un 401.
+ */
+function requireTestSupportSecret(): string {
+  const value = process.env.TEST_SUPPORT_SECRET;
+  if (value === undefined || value.length === 0) {
+    throw new Error(
+      'Falta TEST_SUPPORT_SECRET. Los endpoints de apoyo lo exigen: definilo en el entorno de pruebas.',
+    );
+  }
+  return value;
 }
