@@ -10,33 +10,26 @@ import type { AuthenticatedActor } from '../../common/auth/auth.types';
 describe('Prueba de Concurrencia Real PostgreSQL — Modificación y Aceptación Simultáneas', () => {
   let prismaEmployer: PrismaClient;
   let prismaWorker: PrismaClient;
-  let isDbAvailable = false;
 
+  // Dos conexiones independientes: con una sola, las dos operaciones se
+  // serializarían en el mismo pool y la carrera no llegaría a existir.
+  //
+  // Si la base no está, esto lanza y el archivo falla. Antes se atrapaba el error
+  // y la prueba devolvía verde sin haber verificado nada, que es la peor
+  // combinación posible: parece cobertura y no lo es.
   beforeAll(async () => {
     prismaEmployer = new PrismaClient();
     prismaWorker = new PrismaClient();
-    try {
-      await prismaEmployer.$connect();
-      await prismaWorker.$connect();
-      isDbAvailable = true;
-    } catch {
-      isDbAvailable = false;
-    }
+    await prismaEmployer.$connect();
+    await prismaWorker.$connect();
   });
 
   afterAll(async () => {
-    if (isDbAvailable) {
-      await prismaEmployer.$disconnect();
-      await prismaWorker.$disconnect();
-    }
+    await prismaEmployer?.$disconnect();
+    await prismaWorker?.$disconnect();
   });
 
   it('ejecuta transacción concurrente real contra PostgreSQL y garantiza que solo una versión se acepte', async () => {
-    if (!isDbAvailable) {
-      // Si la BD PostgreSQL local no está levantada en este entorno, se omite el test con advertencia.
-      return;
-    }
-
     const config = {
       WEB_BASE_URL: 'http://localhost:3000',
     } as AppConfig;

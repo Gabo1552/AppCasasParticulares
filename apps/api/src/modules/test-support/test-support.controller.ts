@@ -35,15 +35,33 @@ export class TestSupportController {
     @Inject(APP_CONFIG) private readonly config: AppConfig,
   ) {}
 
+  /**
+   * Defensa en profundidad.
+   *
+   * El controlador ya no se registra fuera de `NODE_ENV=test` (ver
+   * `OnboardingModule.register`), así que en producción estas rutas no existen.
+   * La verificación se conserva igual: si alguien vuelve a registrarlo sin
+   * condición, el handler sigue negándose.
+   */
   private assertEnabled(secretHeader?: string): void {
-    if (this.config.NODE_ENV !== 'test') {
+    if (this.config.NODE_ENV !== 'test' || !this.config.FEATURE_TEST_SUPPORT_ENDPOINTS) {
       throw new ForbiddenException({
         code: 'TEST_SUPPORT_DISABLED',
         message: 'Endpoints de prueba sólo disponibles en NODE_ENV=test.',
       });
     }
 
-    const expectedSecret = this.config.TEST_SUPPORT_SECRET ?? 'test-support-secret-32-chars-length';
+    // Sin valor por defecto: `loadAppConfig` exige el secreto cuando el flag está
+    // encendido, así que llegar acá sin él significa que algo se saltó el
+    // arranque. Un default incrustado sería un secreto que cualquiera puede leer
+    // en el repositorio.
+    const expectedSecret = this.config.TEST_SUPPORT_SECRET;
+    if (expectedSecret === undefined) {
+      throw new ForbiddenException({
+        code: 'TEST_SUPPORT_DISABLED',
+        message: 'TEST_SUPPORT_SECRET no está configurado.',
+      });
+    }
 
     if (!secretHeader || !timingSafeCompare(secretHeader, expectedSecret)) {
       throw new UnauthorizedException({

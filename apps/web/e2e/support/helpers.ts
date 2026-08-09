@@ -18,7 +18,21 @@ export function correoUnico(prefijo: string): string {
   return `${prefijo}-${sufijo}@example.test`;
 }
 
-const secret = process.env['TEST_SUPPORT_SECRET'] ?? 'test-support-secret-32-chars-length';
+/**
+ * Sin valor por defecto: un secreto incrustado en el repositorio no es un
+ * secreto. Si falta, el E2E falla acá con un mensaje claro en vez de recibir 401
+ * en cada llamada y hacer perder el tiempo buscando la causa.
+ */
+const secret = (() => {
+  const value = process.env['TEST_SUPPORT_SECRET'];
+  if (value === undefined || value.length === 0) {
+    throw new Error(
+      'Falta TEST_SUPPORT_SECRET. Los endpoints de apoyo lo exigen: definilo con el mismo ' +
+        'valor con el que arrancó la API.',
+    );
+  }
+  return value;
+})();
 
 export async function ultimoCodigo(request: APIRequestContext, email: string): Promise<string> {
   const respuesta = await request.get(`${API_URL}/api/v1/test-support/last-access-code`, {
