@@ -195,6 +195,9 @@ export class TimeTrackingService {
     if (openWorkDay !== null) {
       const lastEntry = openWorkDay.timeEntries[openWorkDay.timeEntries.length - 1];
       if (lastEntry?.kind === TimeEntryKind.CLOCK_IN) {
+        if (clientIdempotencyKey && lastEntry.clientIdempotencyKey === clientIdempotencyKey) {
+          return toAttendanceView(openWorkDay);
+        }
         throw new UnprocessableError(
           'ATTENDANCE_ALREADY_OPEN',
           'Ya existe una jornada abierta para esta relación. Fichá la salida antes de iniciar otra.',
@@ -272,26 +275,49 @@ export class TimeTrackingService {
         });
       }
 
-      await tx.timeEntry.create({
-        data: {
-          employmentRelationshipId: relationshipId,
-          workDayId: workDay.id,
-          kind: TimeEntryKind.CLOCK_IN,
-          status: TimeEntryStatus.RECORDED,
-          declaredAt,
-          receivedAt: new Date(),
-          timezone,
-          method: (input.method as ClockInMethod) ?? ClockInMethod.BUTTON,
-          clientIdempotencyKey,
-          deviceId: input.deviceId ?? null,
-          deviceLabel: input.deviceLabel ?? null,
-          geoLat: input.location?.lat ? input.location.lat : null,
-          geoLng: input.location?.lng ? input.location.lng : null,
-          geoAccuracyMeters: input.location?.accuracyMeters ?? null,
-          note: input.note ?? null,
-          createdByUserId: actor.userId,
-        },
-      });
+      try {
+        await tx.timeEntry.create({
+          data: {
+            employmentRelationshipId: relationshipId,
+            workDayId: workDay.id,
+            kind: TimeEntryKind.CLOCK_IN,
+            status: TimeEntryStatus.RECORDED,
+            declaredAt,
+            receivedAt: new Date(),
+            timezone,
+            method: (input.method as ClockInMethod) ?? ClockInMethod.BUTTON,
+            clientIdempotencyKey,
+            deviceId: input.deviceId ?? null,
+            deviceLabel: input.deviceLabel ?? null,
+            geoLat: input.location?.lat ? input.location.lat : null,
+            geoLng: input.location?.lng ? input.location.lng : null,
+            geoAccuracyMeters: input.location?.accuracyMeters ?? null,
+            note: input.note ?? null,
+            createdByUserId: actor.userId,
+          },
+        });
+      } catch {
+        if (clientIdempotencyKey) {
+          const existingEntry = await tx.timeEntry.findUnique({
+            where: {
+              employmentRelationshipId_clientIdempotencyKey: {
+                employmentRelationshipId: relationshipId,
+                clientIdempotencyKey,
+              },
+            },
+          });
+          if (existingEntry && existingEntry.workDayId) {
+            return tx.workDay.findUniqueOrThrow({
+              where: { id: existingEntry.workDayId },
+              include: FULL_WORKDAY_INCLUDE,
+            });
+          }
+        }
+        throw new UnprocessableError(
+          'ATTENDANCE_ALREADY_OPEN',
+          'Ya existe una jornada abierta para esta relación. Fichá la salida antes de iniciar otra.',
+        );
+      }
 
       await this.audit.record(tx, {
         action: AuditAction.ATTENDANCE_CLOCKED_IN,
