@@ -74,7 +74,7 @@ export class AttendanceCorrectionsService {
     const isWorker = workDay.relationship.worker?.userId === actor.userId;
 
     if (!isEmployer && !isWorker) {
-      throw new ForbiddenError('No tenés permiso para solicitar correcciones en esta jornada.');
+      throw new NotFoundError('Jornada no encontrada.');
     }
 
     if (workDay.version !== input.expectedVersion) {
@@ -93,8 +93,12 @@ export class AttendanceCorrectionsService {
       );
     }
 
-    const clockInEntry = workDay.timeEntries.find((e) => e.kind === TimeEntryKind.CLOCK_IN);
-    const clockOutEntry = workDay.timeEntries.find((e) => e.kind === TimeEntryKind.CLOCK_OUT);
+    const clockInEntry = workDay.timeEntries.find(
+      (e) => e.kind === TimeEntryKind.CLOCK_IN && e.status !== TimeEntryStatus.CORRECTED,
+    );
+    const clockOutEntry = workDay.timeEntries.find(
+      (e) => e.kind === TimeEntryKind.CLOCK_OUT && e.status !== TimeEntryStatus.CORRECTED,
+    );
 
     const proposedClockInAt = new Date(input.proposedClockInAt);
     const proposedClockOutAt = new Date(input.proposedClockOutAt);
@@ -192,7 +196,14 @@ export class AttendanceCorrectionsService {
       throw new NotFoundError('Jornada no encontrada.');
     }
 
-    if (workDay.relationship.employer.userId !== actor.userId) {
+    const isEmployer = workDay.relationship.employer.userId === actor.userId;
+    const isWorker = workDay.relationship.worker?.userId === actor.userId;
+
+    if (!isEmployer && !isWorker) {
+      throw new NotFoundError('Jornada no encontrada.');
+    }
+
+    if (!isEmployer) {
       throw new ForbiddenError(
         'Sólo la familia empleadora titular puede aprobar correcciones de jornada.',
       );
@@ -230,19 +241,21 @@ export class AttendanceCorrectionsService {
       ),
     );
     const computableMinutes = Math.max(0, realMinutes - (workDay.breakMinutes ?? 0));
+    const approvedMinutes = realMinutes;
     const timezone = workDay.relationship.household.timezone ?? 'America/Argentina/Buenos_Aires';
 
     const resultWorkDay = await this.prisma.$transaction(async (tx: PrismaTx) => {
       const updateResult = await tx.workDay.updateMany({
         where: {
           id: workDay.id,
+          status: WorkDayStatus.DISPUTED,
           version: expectedVersion,
         },
         data: {
           status: WorkDayStatus.APPROVED,
           realMinutes,
           computableMinutes,
-          approvedMinutes: computableMinutes,
+          approvedMinutes,
           approvedAt: new Date(),
           approvedByUserId: actor.userId,
           version: { increment: 1 },
@@ -332,7 +345,7 @@ export class AttendanceCorrectionsService {
         after: {
           correctionId,
           workDayId: workDay.id,
-          approvedMinutes: computableMinutes,
+          approvedMinutes,
           proposedClockInAt: correction.proposedClockInAt!.toISOString(),
           proposedClockOutAt: correction.proposedClockOutAt!.toISOString(),
         },
@@ -373,7 +386,14 @@ export class AttendanceCorrectionsService {
       throw new NotFoundError('Jornada no encontrada.');
     }
 
-    if (workDay.relationship.employer.userId !== actor.userId) {
+    const isEmployer = workDay.relationship.employer.userId === actor.userId;
+    const isWorker = workDay.relationship.worker?.userId === actor.userId;
+
+    if (!isEmployer && !isWorker) {
+      throw new NotFoundError('Jornada no encontrada.');
+    }
+
+    if (!isEmployer) {
       throw new ForbiddenError(
         'Sólo la familia empleadora titular puede rechazar correcciones de jornada.',
       );
@@ -404,6 +424,7 @@ export class AttendanceCorrectionsService {
       const updateResult = await tx.workDay.updateMany({
         where: {
           id: workDay.id,
+          status: WorkDayStatus.DISPUTED,
           version: input.expectedVersion,
         },
         data: {

@@ -13,7 +13,7 @@ import { AttendanceCorrectionsService } from '../attendance-corrections.service'
 import type { PrismaService } from '../../../common/prisma/prisma.service';
 import type { AuditService } from '../../../common/audit/audit.service';
 import type { OutboxNotificationService } from '../../notifications/outbox-notification.service';
-import { ForbiddenError } from '../../../common/http/app.errors';
+import { ForbiddenError, NotFoundError } from '../../../common/http/app.errors';
 import type { AuthenticatedActor } from '../../../common/auth/auth.types';
 
 describe('AttendanceCorrectionsService (unit)', () => {
@@ -211,7 +211,7 @@ describe('AttendanceCorrectionsService (unit)', () => {
       ).rejects.toThrow(ResourceVersionConflictError);
     });
 
-    it('rechaza si el usuario no es parte de la relación', async () => {
+    it('devuelve 404 NotFound si el usuario no es parte de la relación', async () => {
       prisma.workDay.findUnique.mockResolvedValue({
         id: 'wd-1',
         version: 1,
@@ -227,21 +227,21 @@ describe('AttendanceCorrectionsService (unit)', () => {
           proposedClockOutAt: '2026-09-01T17:00:00.000Z',
           expectedVersion: 1,
         }),
-      ).rejects.toThrow(ForbiddenError);
+      ).rejects.toThrow(NotFoundError);
     });
   });
 
   describe('approveCorrection', () => {
-    it('la familia aprueba la corrección, genera fichajes corregidos y deja la jornada en APPROVED', async () => {
+    it('la familia aprueba la corrección, genera fichajes corregidos y deja la jornada en APPROVED con approvedMinutes crudo', async () => {
       const workDayWithPendingCorrection = {
         id: 'wd-1',
         employmentRelationshipId: 'rel-1',
         date: new Date('2026-09-01T00:00:00.000Z'),
         status: WorkDayStatus.DISPUTED,
         realMinutes: 360,
-        computableMinutes: 360,
+        computableMinutes: 330, // break = 30
         approvedMinutes: null,
-        breakMinutes: 0,
+        breakMinutes: 30,
         version: 2,
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -283,8 +283,8 @@ describe('AttendanceCorrectionsService (unit)', () => {
         ...workDayWithPendingCorrection,
         status: WorkDayStatus.APPROVED,
         realMinutes: 540, // 9 horas
-        computableMinutes: 540,
-        approvedMinutes: 540,
+        computableMinutes: 510,
+        approvedMinutes: 540, // 540 min duración efectiva aprobada
         approvedAt: new Date(),
         approvedByUserId: 'employer-user-1',
         version: 3,
@@ -298,7 +298,6 @@ describe('AttendanceCorrectionsService (unit)', () => {
         ],
       };
 
-      prisma.workDay.update.mockResolvedValue(approvedWorkDay);
       prisma.workDay.findUniqueOrThrow.mockResolvedValue(approvedWorkDay);
 
       const result = await service.approveCorrection(employerActor, 'wd-1', 'corr-1', 2);
@@ -310,7 +309,7 @@ describe('AttendanceCorrectionsService (unit)', () => {
       expect(outbox.enqueueEmail).toHaveBeenCalled();
     });
 
-    it('rechaza si quien aprueba no es la familia titular', async () => {
+    it('rechaza con Forbidden si la trabajadora intenta aprobar su propia corrección', async () => {
       prisma.workDay.findUnique.mockResolvedValue({
         id: 'wd-1',
         version: 1,
@@ -320,6 +319,19 @@ describe('AttendanceCorrectionsService (unit)', () => {
 
       await expect(service.approveCorrection(workerActor, 'wd-1', 'corr-1', 1)).rejects.toThrow(
         ForbiddenError,
+      );
+    });
+
+    it('devuelve 404 NotFound si un usuario ajeno intenta aprobar la corrección', async () => {
+      prisma.workDay.findUnique.mockResolvedValue({
+        id: 'wd-1',
+        version: 1,
+        relationship: activeRelationship,
+        corrections: [{ id: 'corr-1', status: AttendanceCorrectionStatus.PENDING }],
+      });
+
+      await expect(service.approveCorrection(strangerActor, 'wd-1', 'corr-1', 1)).rejects.toThrow(
+        NotFoundError,
       );
     });
   });
@@ -340,8 +352,26 @@ describe('AttendanceCorrectionsService (unit)', () => {
         updatedAt: new Date(),
         relationship: activeRelationship,
         timeEntries: [
-          { kind: TimeEntryKind.CLOCK_IN, declaredAt: new Date('2026-09-01T09:00:00.000Z') },
-          { kind: TimeEntryKind.CLOCK_OUT, declaredAt: new Date('2026-09-01T15:00:00.000Z') },
+          {
+            id: 'te-1',
+            kind: TimeEntryKind.CLOCK_IN,
+            status: TimeEntryStatus.RECORDED,
+            declaredAt: new Date('2026-09-01T09:00:00.000Z'),
+            receivedAt: new Date('2026-09-01T09:00:01.000Z'),
+            method: ClockInMethod.BUTTON,
+            note: null,
+            correctsTimeEntryId: null,
+          },
+          {
+            id: 'te-2',
+            kind: TimeEntryKind.CLOCK_OUT,
+            status: TimeEntryStatus.RECORDED,
+            declaredAt: new Date('2026-09-01T15:00:00.000Z'),
+            receivedAt: new Date('2026-09-01T15:00:01.000Z'),
+            method: ClockInMethod.BUTTON,
+            note: null,
+            correctsTimeEntryId: null,
+          },
         ],
         corrections: [
           {
@@ -374,7 +404,6 @@ describe('AttendanceCorrectionsService (unit)', () => {
         ],
       };
 
-      prisma.workDay.update.mockResolvedValue(rejectedWorkDay);
       prisma.workDay.findUniqueOrThrow.mockResolvedValue(rejectedWorkDay);
 
       const result = await service.rejectCorrection(employerActor, 'wd-1', 'corr-1', {
@@ -386,6 +415,19 @@ describe('AttendanceCorrectionsService (unit)', () => {
       expect(result.corrections[0]?.status).toBe('REJECTED');
       expect(audit.record).toHaveBeenCalled();
       expect(outbox.enqueueEmail).toHaveBeenCalled();
+    });
+
+    it('devuelve 404 NotFound si un usuario ajeno intenta rechazar la corrección', async () => {
+      prisma.workDay.findUnique.mockResolvedValue({
+        id: 'wd-1',
+        version: 1,
+        relationship: activeRelationship,
+        corrections: [{ id: 'corr-1', status: AttendanceCorrectionStatus.PENDING }],
+      });
+
+      await expect(
+        service.rejectCorrection(strangerActor, 'wd-1', 'corr-1', { expectedVersion: 1 }),
+      ).rejects.toThrow(NotFoundError);
     });
   });
 });

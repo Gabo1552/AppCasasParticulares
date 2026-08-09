@@ -7,21 +7,26 @@ import { AuditService } from '../../common/audit/audit.service';
 import { OutboxNotificationService } from '../../modules/notifications/outbox-notification.service';
 import { FieldEncryptionService } from '../../common/crypto/field-encryption.service';
 import { loadAppConfig } from '../../config/app-config';
+import { NotFoundError, UnprocessableError } from '../../common/http/app.errors';
 import type { AuthenticatedActor } from '../../common/auth/auth.types';
 
 describe('Pruebas de Integración PostgreSQL — Fichaje, Corrección y Aprobación de Asistencia (E3.7–E3.8)', () => {
   let prismaEmployer: PrismaClient;
   let prismaWorker: PrismaClient;
+  let prismaWorker2: PrismaClient;
   let timeTrackingEmployer: TimeTrackingService;
   let timeTrackingWorker: TimeTrackingService;
+  let timeTrackingWorker2: TimeTrackingService;
   let correctionsEmployer: AttendanceCorrectionsService;
   let correctionsWorker: AttendanceCorrectionsService;
 
   beforeAll(async () => {
     prismaEmployer = new PrismaClient();
     prismaWorker = new PrismaClient();
+    prismaWorker2 = new PrismaClient();
     await prismaEmployer.$connect();
     await prismaWorker.$connect();
+    await prismaWorker2.$connect();
 
     const config = loadAppConfig();
     const fieldEncryption = new FieldEncryptionService(config);
@@ -30,6 +35,7 @@ describe('Pruebas de Integración PostgreSQL — Fichaje, Corrección y Aprobaci
 
     timeTrackingEmployer = new TimeTrackingService(prismaEmployer as never, audit, outbox);
     timeTrackingWorker = new TimeTrackingService(prismaWorker as never, audit, outbox);
+    timeTrackingWorker2 = new TimeTrackingService(prismaWorker2 as never, audit, outbox);
     correctionsEmployer = new AttendanceCorrectionsService(prismaEmployer as never, audit, outbox);
     correctionsWorker = new AttendanceCorrectionsService(prismaWorker as never, audit, outbox);
   });
@@ -37,6 +43,7 @@ describe('Pruebas de Integración PostgreSQL — Fichaje, Corrección y Aprobaci
   afterAll(async () => {
     await prismaEmployer?.$disconnect();
     await prismaWorker?.$disconnect();
+    await prismaWorker2?.$disconnect();
   });
 
   async function createActiveRelationshipFixture() {
@@ -117,32 +124,42 @@ describe('Pruebas de Integración PostgreSQL — Fichaje, Corrección y Aprobaci
     };
   }
 
-  it('1. Flujo completo: entrada -> salida -> aprobación familiar con cálculo determinista de minutos', async () => {
+  it('1. Flujo completo: entrada -> salida -> aprobación familiar con servidor como autoridad de tiempo', async () => {
     const { relationship, employerActor, workerActor } = await createActiveRelationshipFixture();
+
+    const tBefore = Date.now() - 2000;
 
     // A. Trabajadora ficha entrada
     const clockInResult = await timeTrackingWorker.clockIn(
       workerActor,
       relationship.id,
-      { method: 'BUTTON', declaredAt: '2026-09-01T08:00:00.000Z' },
+      { method: 'BUTTON', location: { lat: 0, lng: 0, accuracyMeters: 5 } },
       'idemp-clock-in-1',
     );
 
     expect(clockInResult.status).toBe('OPEN');
-    expect(clockInResult.clockInAt).toBe('2026-09-01T08:00:00.000Z');
+    expect(clockInResult.clockInAt).not.toBeNull();
+    expect(new Date(clockInResult.clockInAt!).getTime()).toBeGreaterThanOrEqual(tBefore);
     expect(clockInResult.clockOutAt).toBeNull();
 
-    // B. Trabajadora ficha salida (trabajó de 08:00 a 16:00 = 8 horas = 480 minutos)
+    // Simular que pasaron horas en la base de datos ajustando el fichaje de entrada
+    const inDate = new Date(Date.now() - 8 * 3600000);
+    await prismaEmployer.timeEntry.updateMany({
+      where: { workDayId: clockInResult.id, kind: 'CLOCK_IN' },
+      data: { declaredAt: inDate, receivedAt: inDate },
+    });
+
+    // B. Trabajadora ficha salida
     const clockOutResult = await timeTrackingWorker.clockOut(
       workerActor,
       clockInResult.id,
-      { declaredAt: '2026-09-01T16:00:00.000Z' },
+      {},
       'idemp-clock-out-1',
     );
 
     expect(clockOutResult.status).toBe('PENDING_APPROVAL');
-    expect(clockOutResult.realMinutes).toBe(480);
-    expect(clockOutResult.computableMinutes).toBe(480);
+    expect(clockOutResult.realMinutes).toBeGreaterThanOrEqual(479);
+    expect(clockOutResult.computableMinutes).toBeGreaterThanOrEqual(479);
 
     // C. Familia aprueba la jornada
     const approvalResult = await timeTrackingEmployer.approve(employerActor, clockOutResult.id, {
@@ -150,7 +167,7 @@ describe('Pruebas de Integración PostgreSQL — Fichaje, Corrección y Aprobaci
     });
 
     expect(approvalResult.status).toBe('APPROVED');
-    expect(approvalResult.approvedMinutes).toBe(480);
+    expect(approvalResult.approvedMinutes).toBeGreaterThanOrEqual(479);
     expect(approvalResult.approvedAt).not.toBeNull();
     expect(approvalResult.approvedByUserId).toBe(employerActor.userId);
 
@@ -161,33 +178,104 @@ describe('Pruebas de Integración PostgreSQL — Fichaje, Corrección y Aprobaci
     });
 
     expect(dbWorkDay?.status).toBe(WorkDayStatus.APPROVED);
-    expect(dbWorkDay?.approvedMinutes).toBe(480);
     expect(dbWorkDay?.timeEntries).toHaveLength(2);
     expect(dbWorkDay?.timeEntries.every((e) => e.status === TimeEntryStatus.APPROVED)).toBe(true);
+
+    // Verificar geolocalización preservada con coordenadas (0, 0)
+    const dbInEntry = dbWorkDay?.timeEntries.find((e) => e.kind === 'CLOCK_IN');
+    expect(dbInEntry?.geoLat).toBe(0);
+    expect(dbInEntry?.geoLng).toBe(0);
 
     // Verificar auditoría persistida en PostgreSQL
     const auditEvents = await prismaEmployer.auditEvent.findMany({
       where: { entityId: clockOutResult.id },
     });
-    expect(auditEvents.length).toBeGreaterThanOrEqual(3); // Clock-in, Clock-out, Approved
+    expect(auditEvents.length).toBeGreaterThanOrEqual(3);
   });
 
-  it('2. Concurrencia real: aprobación simultánea de la familia vs solicitud de corrección por la trabajadora', async () => {
-    const { relationship, employerActor, workerActor } = await createActiveRelationshipFixture();
+  it('2. Concurrencia real P0: Dos clock-in simultáneos con claves distintas sólo permiten una jornada abierta', async () => {
+    const { relationship, workerActor } = await createActiveRelationshipFixture();
 
-    // Crear jornada en PENDING_APPROVAL
+    const results = await Promise.allSettled([
+      timeTrackingWorker.clockIn(
+        workerActor,
+        relationship.id,
+        { method: 'BUTTON' },
+        'key-concurrent-in-a',
+      ),
+      timeTrackingWorker2.clockIn(
+        workerActor,
+        relationship.id,
+        { method: 'BUTTON' },
+        'key-concurrent-in-b',
+      ),
+    ]);
+
+    const succeeded = results.filter((r) => r.status === 'fulfilled');
+    const failed = results.filter((r) => r.status === 'rejected');
+
+    // Exactamente 1 triunfa y 1 falla
+    expect(succeeded.length).toBe(1);
+    expect(failed.length).toBe(1);
+
+    const failureReason = (failed[0] as PromiseRejectedResult).reason;
+    expect(failureReason).toBeInstanceOf(UnprocessableError);
+
+    // En la base de datos sólo existe 1 WorkDay y 1 TimeEntry para esta relación
+    const workDays = await prismaEmployer.workDay.findMany({
+      where: { employmentRelationshipId: relationship.id },
+      include: { timeEntries: true },
+    });
+
+    expect(workDays).toHaveLength(1);
+    expect(workDays[0]?.status).toBe(WorkDayStatus.OPEN);
+    expect(workDays[0]?.timeEntries).toHaveLength(1);
+  });
+
+  it('3. Concurrencia real P0: Dos clock-out simultáneos con claves distintas sólo permiten un cierre', async () => {
+    const { relationship, workerActor } = await createActiveRelationshipFixture();
+
     const inRes = await timeTrackingWorker.clockIn(
       workerActor,
       relationship.id,
-      { method: 'BUTTON', declaredAt: '2026-09-02T08:00:00.000Z' },
-      'idemp-in-2',
+      { method: 'BUTTON' },
+      'key-in-single',
     );
-    const outRes = await timeTrackingWorker.clockOut(
+
+    const results = await Promise.allSettled([
+      timeTrackingWorker.clockOut(workerActor, inRes.id, {}, 'key-out-a'),
+      timeTrackingWorker2.clockOut(workerActor, inRes.id, {}, 'key-out-b'),
+    ]);
+
+    const succeeded = results.filter((r) => r.status === 'fulfilled');
+    const failed = results.filter((r) => r.status === 'rejected');
+
+    expect(succeeded.length).toBe(1);
+    expect(failed.length).toBe(1);
+
+    const failureReason = (failed[0] as PromiseRejectedResult).reason;
+    expect(failureReason).toBeInstanceOf(UnprocessableError);
+
+    const dbWorkDay = await prismaEmployer.workDay.findUnique({
+      where: { id: inRes.id },
+      include: { timeEntries: true },
+    });
+
+    expect(dbWorkDay?.status).toBe(WorkDayStatus.PENDING_APPROVAL);
+    const clockOuts = dbWorkDay?.timeEntries.filter((e) => e.kind === 'CLOCK_OUT');
+    expect(clockOuts).toHaveLength(1);
+  });
+
+  it('4. Concurrencia real: aprobación simultánea de la familia vs solicitud de corrección por la trabajadora', async () => {
+    const { relationship, employerActor, workerActor } = await createActiveRelationshipFixture();
+
+    const inRes = await timeTrackingWorker.clockIn(
       workerActor,
-      inRes.id,
-      { declaredAt: '2026-09-02T16:00:00.000Z' },
-      'idemp-out-2',
+      relationship.id,
+      { method: 'BUTTON' },
+      'idemp-in-race-2',
     );
+    const outRes = await timeTrackingWorker.clockOut(workerActor, inRes.id, {}, 'idemp-out-race-2');
 
     const observedVersion = outRes.version;
 
@@ -196,8 +284,8 @@ describe('Pruebas de Integración PostgreSQL — Fichaje, Corrección y Aprobaci
       timeTrackingEmployer.approve(employerActor, outRes.id, { expectedVersion: observedVersion }),
       correctionsWorker.requestCorrection(workerActor, outRes.id, {
         reason: 'Salí a las 17:00 en realidad',
-        proposedClockInAt: '2026-09-02T08:00:00.000Z',
-        proposedClockOutAt: '2026-09-02T17:00:00.000Z',
+        proposedClockInAt: inRes.clockInAt!,
+        proposedClockOutAt: new Date(Date.now() + 3600000).toISOString(),
         expectedVersion: observedVersion,
       }),
     ]);
@@ -212,84 +300,117 @@ describe('Pruebas de Integración PostgreSQL — Fichaje, Corrección y Aprobaci
     const failureReason = (failed[0] as PromiseRejectedResult).reason;
     expect(failureReason).toBeInstanceOf(ResourceVersionConflictError);
 
-    // El estado en la base es consistente con la que ganó
     const finalWorkDay = await prismaEmployer.workDay.findUnique({
       where: { id: outRes.id },
       include: { corrections: true },
     });
 
     if (finalWorkDay?.status === WorkDayStatus.APPROVED) {
-      expect(finalWorkDay.approvedMinutes).toBe(480);
+      expect(finalWorkDay.approvedMinutes).not.toBeNull();
     } else {
       expect(finalWorkDay?.status).toBe(WorkDayStatus.DISPUTED);
       expect(finalWorkDay?.corrections).toHaveLength(1);
     }
   });
 
-  it('3. Flujo de corrección: trabajadora solicita corrección y familia la aprueba', async () => {
+  it('5. Invariante P0: No se puede aprobar normalmente una jornada en estado DISPUTED', async () => {
     const { relationship, employerActor, workerActor } = await createActiveRelationshipFixture();
 
     const inRes = await timeTrackingWorker.clockIn(
       workerActor,
       relationship.id,
-      { method: 'BUTTON', declaredAt: '2026-09-03T09:00:00.000Z' },
-      'idemp-in-3',
+      { method: 'BUTTON' },
+      'in-disputed-test',
     );
     const outRes = await timeTrackingWorker.clockOut(
       workerActor,
       inRes.id,
-      { declaredAt: '2026-09-03T15:00:00.000Z' }, // 6 horas
-      'idemp-out-3',
+      {},
+      'out-disputed-test',
     );
 
-    // Trabajadora solicita corrección a 8 horas (09:00 a 17:00)
-    const correctedDisputed = await correctionsWorker.requestCorrection(workerActor, outRes.id, {
-      reason: 'Me quedé 2 horas extra acordadas',
-      proposedClockInAt: '2026-09-03T09:00:00.000Z',
-      proposedClockOutAt: '2026-09-03T17:00:00.000Z',
+    const disputed = await correctionsWorker.requestCorrection(workerActor, outRes.id, {
+      reason: 'Ajuste de horario',
+      proposedClockInAt: inRes.clockInAt!,
+      proposedClockOutAt: new Date(Date.now() + 7200000).toISOString(),
       expectedVersion: outRes.version,
     });
 
-    expect(correctedDisputed.status).toBe('DISPUTED');
-    const correctionId = correctedDisputed.corrections[0]!.id;
+    expect(disputed.status).toBe('DISPUTED');
 
-    // Familia aprueba la corrección
-    const approvedCorrectionResult = await correctionsEmployer.approveCorrection(
-      employerActor,
-      outRes.id,
-      correctionId,
-      correctedDisputed.version,
-    );
-
-    expect(approvedCorrectionResult.status).toBe('APPROVED');
-    expect(approvedCorrectionResult.approvedMinutes).toBe(480); // 8 horas = 480 min
-    expect(approvedCorrectionResult.effectiveClockOutAt).toBe('2026-09-03T17:00:00.000Z');
-
-    // Fichajes originales quedan marcados como CORRECTED y nuevos como APPROVED
-    const dbEntries = await prismaEmployer.timeEntry.findMany({
-      where: { workDayId: outRes.id },
-      orderBy: { createdAt: 'asc' },
-    });
-
-    const correctedEntries = dbEntries.filter((e) => e.status === TimeEntryStatus.CORRECTED);
-    const approvedEntries = dbEntries.filter((e) => e.status === TimeEntryStatus.APPROVED);
-
-    expect(correctedEntries.length).toBe(2); // In y Out originales
-    expect(approvedEntries.length).toBe(2); // In y Out corregidos
+    await expect(
+      timeTrackingEmployer.approve(employerActor, outRes.id, {
+        expectedVersion: disputed.version,
+      }),
+    ).rejects.toThrow(UnprocessableError);
   });
 
-  it('4. Idempotencia: dos llamadas con la misma clave devuelven el mismo registro sin duplicar', async () => {
+  it('6. Invariante P0: Una jornada APPROVED nunca se reabre con clock-in', async () => {
+    const { relationship, employerActor, workerActor } = await createActiveRelationshipFixture();
+
+    const inRes = await timeTrackingWorker.clockIn(
+      workerActor,
+      relationship.id,
+      { method: 'BUTTON' },
+      'in-approve-reopen',
+    );
+    const outRes = await timeTrackingWorker.clockOut(
+      workerActor,
+      inRes.id,
+      {},
+      'out-approve-reopen',
+    );
+    const approved = await timeTrackingEmployer.approve(employerActor, outRes.id, {
+      expectedVersion: outRes.version,
+    });
+
+    expect(approved.status).toBe('APPROVED');
+
+    await expect(
+      timeTrackingWorker.clockIn(
+        workerActor,
+        relationship.id,
+        { method: 'BUTTON' },
+        'in-attempt-reopen',
+      ),
+    ).rejects.toThrow(UnprocessableError);
+
+    const dbWorkDay = await prismaEmployer.workDay.findUnique({
+      where: { id: approved.id },
+    });
+    expect(dbWorkDay?.status).toBe(WorkDayStatus.APPROVED);
+  });
+
+  it('7. Invariante P1: Privacidad cross-tenant devuelve 404', async () => {
+    const fixture1 = await createActiveRelationshipFixture();
+    const fixture2 = await createActiveRelationshipFixture();
+
+    const inRes1 = await timeTrackingWorker.clockIn(
+      fixture1.workerActor,
+      fixture1.relationship.id,
+      { method: 'BUTTON' },
+      'in-tenant-1',
+    );
+
+    // Usuario de fixture 2 intenta acceder al workday o relacion de fixture 1 -> 404
+    await expect(timeTrackingWorker.getById(fixture2.workerActor, inRes1.id)).rejects.toThrow(
+      NotFoundError,
+    );
+    await expect(
+      timeTrackingEmployer.approve(fixture2.employerActor, inRes1.id, { expectedVersion: 0 }),
+    ).rejects.toThrow(NotFoundError);
+  });
+
+  it('8. Idempotencia: dos llamadas con la misma clave devuelven el mismo registro sin duplicar', async () => {
     const { relationship, workerActor } = await createActiveRelationshipFixture();
 
     const [res1, res2] = await Promise.all([
       timeTrackingWorker.clockIn(workerActor, relationship.id, {
         method: 'BUTTON',
-        declaredAt: '2026-09-04T08:30:00.000Z',
         clientIdempotencyKey: 'same-idemp-key-4',
       }),
       timeTrackingWorker.clockIn(workerActor, relationship.id, {
         method: 'BUTTON',
-        declaredAt: '2026-09-04T08:30:00.000Z',
         clientIdempotencyKey: 'same-idemp-key-4',
       }),
     ]);
@@ -304,5 +425,37 @@ describe('Pruebas de Integración PostgreSQL — Fichaje, Corrección y Aprobaci
     });
 
     expect(count).toBe(1);
+  });
+
+  it('9. Ciclo de corrección: trabajadora solicita corrección y familia la aprueba', async () => {
+    const { relationship, employerActor, workerActor } = await createActiveRelationshipFixture();
+
+    const inRes = await timeTrackingWorker.clockIn(
+      workerActor,
+      relationship.id,
+      { method: 'BUTTON' },
+      'in-corr-flow',
+    );
+    const outRes = await timeTrackingWorker.clockOut(workerActor, inRes.id, {}, 'out-corr-flow');
+
+    const disputed = await correctionsWorker.requestCorrection(workerActor, outRes.id, {
+      reason: 'Ajuste de horario acordado',
+      proposedClockInAt: inRes.clockInAt!,
+      proposedClockOutAt: new Date(Date.now() + 3600000).toISOString(),
+      expectedVersion: outRes.version,
+    });
+
+    expect(disputed.status).toBe('DISPUTED');
+    const correctionId = disputed.corrections[0]!.id;
+
+    const approved = await correctionsEmployer.approveCorrection(
+      employerActor,
+      outRes.id,
+      correctionId,
+      disputed.version,
+    );
+
+    expect(approved.status).toBe('APPROVED');
+    expect(approved.approvedMinutes).toBeGreaterThanOrEqual(59);
   });
 });

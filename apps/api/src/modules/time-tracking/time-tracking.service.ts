@@ -52,8 +52,12 @@ type WorkDayWithDetails = Prisma.WorkDayGetPayload<{
 }>;
 
 export function toAttendanceView(workDay: WorkDayWithDetails): AttendanceView {
-  const clockIn = workDay.timeEntries.find((e) => e.kind === TimeEntryKind.CLOCK_IN);
-  const clockOut = workDay.timeEntries.find((e) => e.kind === TimeEntryKind.CLOCK_OUT);
+  const clockIn = workDay.timeEntries.find(
+    (e) => e.kind === TimeEntryKind.CLOCK_IN && e.status !== TimeEntryStatus.CORRECTED,
+  );
+  const clockOut = workDay.timeEntries.find(
+    (e) => e.kind === TimeEntryKind.CLOCK_OUT && e.status !== TimeEntryStatus.CORRECTED,
+  );
 
   const approvedCorrection = workDay.corrections.find((c) => c.status === 'APPROVED');
 
@@ -88,12 +92,8 @@ export function toAttendanceView(workDay: WorkDayWithDetails): AttendanceView {
       id: e.id,
       kind: e.kind,
       status: e.status,
-      declaredAt: e.declaredAt ? e.declaredAt.toISOString() : new Date().toISOString(),
-      receivedAt: e.receivedAt
-        ? e.receivedAt.toISOString()
-        : e.declaredAt
-          ? e.declaredAt.toISOString()
-          : new Date().toISOString(),
+      declaredAt: e.declaredAt.toISOString(),
+      receivedAt: e.receivedAt.toISOString(),
       method: e.method,
       note: e.note,
       correctsTimeEntryId: e.correctsTimeEntryId,
@@ -110,7 +110,7 @@ export function toAttendanceView(workDay: WorkDayWithDetails): AttendanceView {
       resolvedAt: c.resolvedAt ? c.resolvedAt.toISOString() : null,
       resolvedByUserId: c.resolvedByUserId,
       resolutionNote: c.resolutionNote,
-      createdAt: c.createdAt ? c.createdAt.toISOString() : new Date().toISOString(),
+      createdAt: c.createdAt.toISOString(),
       version: c.version ?? 0,
     })),
     version: workDay.version,
@@ -149,7 +149,14 @@ export class TimeTrackingService {
       throw new NotFoundError('Relación laboral no encontrada.');
     }
 
-    if (relationship.worker?.userId !== actor.userId) {
+    const isWorker = relationship.worker?.userId === actor.userId;
+    const isEmployer = relationship.employer?.userId === actor.userId;
+
+    if (!isWorker && !isEmployer) {
+      throw new NotFoundError('Relación laboral no encontrada.');
+    }
+
+    if (!isWorker) {
       throw new ForbiddenError(
         'Sólo la trabajadora asignada a esta relación puede registrar el fichaje.',
       );
@@ -183,31 +190,13 @@ export class TimeTrackingService {
       return toAttendanceView(existingEntry.workDay);
     }
 
-    // Verificar si ya hay una jornada abierta para esta relación
-    const openWorkDay = await this.prisma.workDay.findFirst({
-      where: {
-        employmentRelationshipId: relationshipId,
-        status: WorkDayStatus.OPEN,
-      },
-      include: FULL_WORKDAY_INCLUDE,
-    });
+    // Autoridad de tiempo del servidor
+    const now = new Date();
+    const declaredAt = now;
+    const receivedAt = now;
 
-    if (openWorkDay !== null) {
-      const lastEntry = openWorkDay.timeEntries[openWorkDay.timeEntries.length - 1];
-      if (lastEntry?.kind === TimeEntryKind.CLOCK_IN) {
-        if (clientIdempotencyKey && lastEntry.clientIdempotencyKey === clientIdempotencyKey) {
-          return toAttendanceView(openWorkDay);
-        }
-        throw new UnprocessableError(
-          'ATTENDANCE_ALREADY_OPEN',
-          'Ya existe una jornada abierta para esta relación. Fichá la salida antes de iniciar otra.',
-        );
-      }
-    }
-
-    const declaredAt = input.declaredAt ? new Date(input.declaredAt) : new Date();
-    const timezone =
-      input.timezone ?? relationship.household.timezone ?? 'America/Argentina/Buenos_Aires';
+    // Timezone oficial del domicilio (fallback 'America/Argentina/Buenos_Aires')
+    const timezone = relationship.household.timezone ?? 'America/Argentina/Buenos_Aires';
 
     // Fecha en hora local del domicilio
     const dateStr = declaredAt.toLocaleDateString('en-CA', { timeZone: timezone });
@@ -216,7 +205,7 @@ export class TimeTrackingService {
     const resultWorkDay = await this.prisma.$transaction(async (tx: PrismaTx) => {
       // Si ya existía un fichaje con esta clave de idempotencia en la relación, devolverlo
       if (clientIdempotencyKey) {
-        const existingEntry = await tx.timeEntry.findUnique({
+        const existingEntryInTx = await tx.timeEntry.findUnique({
           where: {
             employmentRelationshipId_clientIdempotencyKey: {
               employmentRelationshipId: relationshipId,
@@ -224,16 +213,31 @@ export class TimeTrackingService {
             },
           },
         });
-        if (existingEntry && existingEntry.workDayId) {
+        if (existingEntryInTx && existingEntryInTx.workDayId) {
           return tx.workDay.findUniqueOrThrow({
-            where: { id: existingEntry.workDayId },
+            where: { id: existingEntryInTx.workDayId },
             include: FULL_WORKDAY_INCLUDE,
           });
         }
       }
 
-      // Buscar o crear la jornada para esta fecha
-      let workDay = await tx.workDay.findUnique({
+      // Invariante 1: No puede haber ninguna jornada OPEN ya existente en esta relación
+      const openWorkDay = await tx.workDay.findFirst({
+        where: {
+          employmentRelationshipId: relationshipId,
+          status: WorkDayStatus.OPEN,
+        },
+      });
+
+      if (openWorkDay !== null) {
+        throw new UnprocessableError(
+          'ATTENDANCE_ALREADY_OPEN',
+          'Ya existe una jornada abierta para esta relación. Fichá la salida antes de iniciar otra.',
+        );
+      }
+
+      // Invariante 2: Buscar si ya existe una jornada para esta fecha
+      const existingWorkDayForDate = await tx.workDay.findUnique({
         where: {
           employmentRelationshipId_date: {
             employmentRelationshipId: relationshipId,
@@ -242,37 +246,36 @@ export class TimeTrackingService {
         },
       });
 
-      if (workDay === null) {
-        try {
-          workDay = await tx.workDay.create({
-            data: {
-              employmentRelationshipId: relationshipId,
-              date: localDate,
-              status: WorkDayStatus.OPEN,
-              createdByUserId: actor.userId,
-              realMinutes: 0,
-              computableMinutes: 0,
-            },
-          });
-        } catch {
-          workDay = await tx.workDay.findUniqueOrThrow({
-            where: {
-              employmentRelationshipId_date: {
-                employmentRelationshipId: relationshipId,
-                date: localDate,
-              },
-            },
-          });
+      if (existingWorkDayForDate !== null) {
+        if (existingWorkDayForDate.status !== WorkDayStatus.OPEN) {
+          throw new UnprocessableError(
+            'ATTENDANCE_ALREADY_CLOSED',
+            'La jornada de esta fecha ya fue registrada o cerrada previamente. Si necesitás modificar los horarios, solicitá una corrección.',
+          );
         }
-      } else if (workDay.status !== WorkDayStatus.OPEN) {
-        // Reabrir para nueva entrada si correspondiera
-        workDay = await tx.workDay.update({
-          where: { id: workDay.id },
+        throw new UnprocessableError(
+          'ATTENDANCE_ALREADY_OPEN',
+          'Ya existe una jornada abierta para esta relación. Fichá la salida antes de iniciar otra.',
+        );
+      }
+
+      let workDay: { id: string };
+      try {
+        workDay = await tx.workDay.create({
           data: {
+            employmentRelationshipId: relationshipId,
+            date: localDate,
             status: WorkDayStatus.OPEN,
-            version: { increment: 1 },
+            createdByUserId: actor.userId,
+            realMinutes: 0,
+            computableMinutes: 0,
           },
         });
+      } catch {
+        throw new UnprocessableError(
+          'ATTENDANCE_ALREADY_OPEN',
+          'Ya existe una jornada abierta para esta relación. Fichá la salida antes de iniciar otra.',
+        );
       }
 
       try {
@@ -283,39 +286,23 @@ export class TimeTrackingService {
             kind: TimeEntryKind.CLOCK_IN,
             status: TimeEntryStatus.RECORDED,
             declaredAt,
-            receivedAt: new Date(),
+            receivedAt,
             timezone,
             method: (input.method as ClockInMethod) ?? ClockInMethod.BUTTON,
             clientIdempotencyKey,
             deviceId: input.deviceId ?? null,
             deviceLabel: input.deviceLabel ?? null,
-            geoLat: input.location?.lat ? input.location.lat : null,
-            geoLng: input.location?.lng ? input.location.lng : null,
+            geoLat: input.location?.lat ?? null,
+            geoLng: input.location?.lng ?? null,
             geoAccuracyMeters: input.location?.accuracyMeters ?? null,
             note: input.note ?? null,
             createdByUserId: actor.userId,
           },
         });
       } catch {
-        if (clientIdempotencyKey) {
-          const existingEntry = await tx.timeEntry.findUnique({
-            where: {
-              employmentRelationshipId_clientIdempotencyKey: {
-                employmentRelationshipId: relationshipId,
-                clientIdempotencyKey,
-              },
-            },
-          });
-          if (existingEntry && existingEntry.workDayId) {
-            return tx.workDay.findUniqueOrThrow({
-              where: { id: existingEntry.workDayId },
-              include: FULL_WORKDAY_INCLUDE,
-            });
-          }
-        }
         throw new UnprocessableError(
           'ATTENDANCE_ALREADY_OPEN',
-          'Ya existe una jornada abierta para esta relación. Fichá la salida antes de iniciar otra.',
+          'Ya existe un fichaje de entrada activo para esta jornada.',
         );
       }
 
@@ -361,7 +348,14 @@ export class TimeTrackingService {
       throw new NotFoundError('Jornada no encontrada.');
     }
 
-    if (workDay.relationship.worker?.userId !== actor.userId) {
+    const isWorker = workDay.relationship.worker?.userId === actor.userId;
+    const isEmployer = workDay.relationship.employer?.userId === actor.userId;
+
+    if (!isWorker && !isEmployer) {
+      throw new NotFoundError('Jornada no encontrada.');
+    }
+
+    if (!isWorker) {
       throw new ForbiddenError('Sólo la trabajadora asignada puede registrar la salida.');
     }
 
@@ -389,7 +383,9 @@ export class TimeTrackingService {
       );
     }
 
-    const clockInEntry = workDay.timeEntries.find((e) => e.kind === TimeEntryKind.CLOCK_IN);
+    const clockInEntry = workDay.timeEntries.find(
+      (e) => e.kind === TimeEntryKind.CLOCK_IN && e.status !== TimeEntryStatus.CORRECTED,
+    );
     if (clockInEntry === undefined) {
       throw new UnprocessableError(
         'NO_CLOCK_IN_FOUND',
@@ -397,7 +393,11 @@ export class TimeTrackingService {
       );
     }
 
-    const declaredAt = input.declaredAt ? new Date(input.declaredAt) : new Date();
+    // Autoridad de tiempo del servidor
+    const now = new Date();
+    const declaredAt = now;
+    const receivedAt = now;
+
     if (declaredAt.getTime() < clockInEntry.declaredAt.getTime()) {
       throw new UnprocessableError(
         'INVALID_CLOCK_OUT_TIME',
@@ -412,32 +412,49 @@ export class TimeTrackingService {
     const computableMinutes = Math.max(0, realMinutes - (workDay.breakMinutes ?? 0));
 
     const resultWorkDay = await this.prisma.$transaction(async (tx: PrismaTx) => {
-      await tx.timeEntry.create({
-        data: {
-          employmentRelationshipId: workDay.employmentRelationshipId,
-          workDayId: workDay.id,
-          kind: TimeEntryKind.CLOCK_OUT,
-          status: TimeEntryStatus.RECORDED,
-          declaredAt,
-          receivedAt: new Date(),
-          timezone: clockInEntry.timezone,
-          method: clockInEntry.method,
-          clientIdempotencyKey,
-          note: input.note ?? null,
-          createdByUserId: actor.userId,
+      // CAS atómico sobre WorkDay: debe estar OPEN
+      const updateResult = await tx.workDay.updateMany({
+        where: {
+          id: workDay.id,
+          status: WorkDayStatus.OPEN,
         },
-      });
-
-      const updated = await tx.workDay.update({
-        where: { id: workDay.id },
         data: {
           status: WorkDayStatus.PENDING_APPROVAL,
           realMinutes,
           computableMinutes,
           version: { increment: 1 },
         },
-        include: FULL_WORKDAY_INCLUDE,
       });
+
+      if (updateResult.count === 0) {
+        throw new UnprocessableError(
+          'ATTENDANCE_NOT_OPEN',
+          'La jornada no está abierta o ya fue cerrada previamente.',
+        );
+      }
+
+      try {
+        await tx.timeEntry.create({
+          data: {
+            employmentRelationshipId: workDay.employmentRelationshipId,
+            workDayId: workDay.id,
+            kind: TimeEntryKind.CLOCK_OUT,
+            status: TimeEntryStatus.RECORDED,
+            declaredAt,
+            receivedAt,
+            timezone: clockInEntry.timezone,
+            method: clockInEntry.method,
+            clientIdempotencyKey,
+            note: input.note ?? null,
+            createdByUserId: actor.userId,
+          },
+        });
+      } catch {
+        throw new UnprocessableError(
+          'ATTENDANCE_NOT_OPEN',
+          'La jornada no está abierta o ya fue cerrada previamente.',
+        );
+      }
 
       await this.audit.record(tx, {
         action: AuditAction.ATTENDANCE_CLOCKED_OUT,
@@ -464,7 +481,10 @@ export class TimeTrackingService {
         });
       }
 
-      return updated;
+      return tx.workDay.findUniqueOrThrow({
+        where: { id: workDay.id },
+        include: FULL_WORKDAY_INCLUDE,
+      });
     });
 
     return toAttendanceView(resultWorkDay);
@@ -491,7 +511,7 @@ export class TimeTrackingService {
     const isWorker = relationship.worker?.userId === actor.userId;
 
     if (!isEmployer && !isWorker) {
-      throw new ForbiddenError('No tenés permiso para ver la asistencia de esta relación laboral.');
+      throw new NotFoundError('Relación laboral no encontrada.');
     }
 
     const where: Prisma.WorkDayWhereInput = {
@@ -535,7 +555,7 @@ export class TimeTrackingService {
     const isWorker = workDay.relationship.worker?.userId === actor.userId;
 
     if (!isEmployer && !isWorker) {
-      throw new ForbiddenError('No tenés permiso para ver esta jornada.');
+      throw new NotFoundError('Jornada no encontrada.');
     }
 
     return toAttendanceView(workDay);
@@ -558,7 +578,14 @@ export class TimeTrackingService {
       throw new NotFoundError('Jornada no encontrada.');
     }
 
-    if (workDay.relationship.employer.userId !== actor.userId) {
+    const isEmployer = workDay.relationship.employer.userId === actor.userId;
+    const isWorker = workDay.relationship.worker?.userId === actor.userId;
+
+    if (!isEmployer && !isWorker) {
+      throw new NotFoundError('Jornada no encontrada.');
+    }
+
+    if (!isEmployer) {
       throw new ForbiddenError('Sólo la familia empleadora titular puede aprobar las jornadas.');
     }
 
@@ -572,19 +599,47 @@ export class TimeTrackingService {
       return toAttendanceView(workDay);
     }
 
-    if (workDay.status === WorkDayStatus.OPEN) {
+    if (workDay.status === WorkDayStatus.DISPUTED) {
       throw new UnprocessableError(
-        'CANNOT_APPROVE_OPEN_ATTENDANCE',
-        'No se puede aprobar una jornada que aún no registró salida.',
+        'CANNOT_APPROVE_DISPUTED_ATTENDANCE',
+        'Esta jornada tiene una corrección pendiente de resolución. Debés aprobar o rechazar la corrección antes de continuar.',
       );
     }
 
-    const approvedMinutes = workDay.computableMinutes;
+    if (workDay.status !== WorkDayStatus.PENDING_APPROVAL) {
+      throw new UnprocessableError(
+        'CANNOT_APPROVE_NON_PENDING_ATTENDANCE',
+        'Sólo se pueden aprobar jornadas que se encuentren pendientes de aprobación.',
+      );
+    }
+
+    const pendingCorrection = workDay.corrections.find((c) => c.status === 'PENDING');
+    if (pendingCorrection !== undefined) {
+      throw new UnprocessableError(
+        'CORRECTION_PENDING',
+        'Existe una solicitud de corrección pendiente para esta jornada. Resolvé la corrección antes de aprobar.',
+      );
+    }
+
+    // approvedMinutes representa la duración efectiva aprobada (sin aplicar reglas de liquidación ni deducciones automáticas)
+    const clockIn = workDay.timeEntries.find(
+      (e) => e.kind === TimeEntryKind.CLOCK_IN && e.status !== TimeEntryStatus.CORRECTED,
+    );
+    const clockOut = workDay.timeEntries.find(
+      (e) => e.kind === TimeEntryKind.CLOCK_OUT && e.status !== TimeEntryStatus.CORRECTED,
+    );
+    const effectiveIn = clockIn?.declaredAt ?? workDay.date;
+    const effectiveOut = clockOut?.declaredAt ?? effectiveIn;
+    const approvedMinutes = Math.max(
+      0,
+      Math.floor((effectiveOut.getTime() - effectiveIn.getTime()) / 60000),
+    );
 
     const resultWorkDay = await this.prisma.$transaction(async (tx: PrismaTx) => {
       const updateResult = await tx.workDay.updateMany({
         where: {
           id: workDay.id,
+          status: WorkDayStatus.PENDING_APPROVAL,
           version: input.expectedVersion,
         },
         data: {
