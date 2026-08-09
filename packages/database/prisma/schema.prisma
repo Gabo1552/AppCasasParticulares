@@ -768,6 +768,7 @@ model WorkDay {
   breakMinutes             Int                    @default(0)
   isHoliday                Boolean                @default(false)
   /// Regla de redondeo aplicada, para poder explicar la diferencia (FIC-04).
+  approvedMinutes          Int?
   appliedRoundingRule      String?
 
   approvedAt               DateTime?
@@ -781,8 +782,10 @@ model WorkDay {
   relationship             EmploymentRelationship @relation(fields: [employmentRelationshipId], references: [id])
   payrollPeriod            PayrollPeriod?         @relation(fields: [payrollPeriodId], references: [id])
   timeEntries              TimeEntry[]
+  corrections              AttendanceCorrection[]
 
   @@unique([employmentRelationshipId, date])
+  @@index([employmentRelationshipId, status])
   @@index([payrollPeriodId, status])
   @@map("work_day")
 }
@@ -794,23 +797,30 @@ enum AttendanceCorrectionStatus {
 }
 
 model AttendanceCorrection {
-  id                String                     @id @default(uuid()) @db.Uuid
-  timeEntryId       String                     @db.Uuid
-  status            AttendanceCorrectionStatus @default(PENDING)
-  requestedByUserId String                     @db.Uuid
-  reason            String
-  proposedAt        DateTime
-  resolvedAt        DateTime?
-  resolvedByUserId  String?                    @db.Uuid
-  resolutionNote    String?
+  id                 String                     @id @default(uuid()) @db.Uuid
+  workDayId          String?                    @db.Uuid
+  timeEntryId        String?                    @db.Uuid
+  status             AttendanceCorrectionStatus @default(PENDING)
+  requestedByUserId  String                     @db.Uuid
+  reason             String
+  proposedAt         DateTime?
+  originalClockInAt  DateTime?
+  originalClockOutAt DateTime?
+  proposedClockInAt  DateTime?
+  proposedClockOutAt DateTime?
+  resolvedAt         DateTime?
+  resolvedByUserId   String?                    @db.Uuid
+  resolutionNote     String?
 
-  createdAt         DateTime                   @default(now())
-  updatedAt         DateTime                   @updatedAt
-  version           Int                        @default(0)
+  createdAt          DateTime                   @default(now())
+  updatedAt          DateTime                   @updatedAt
+  version            Int                        @default(0)
 
-  timeEntry         TimeEntry                  @relation(fields: [timeEntryId], references: [id])
+  workDay            WorkDay?                   @relation(fields: [workDayId], references: [id])
+  timeEntry          TimeEntry?                 @relation(fields: [timeEntryId], references: [id])
 
   @@index([status])
+  @@index([workDayId, status])
   @@map("attendance_correction")
 }
 
