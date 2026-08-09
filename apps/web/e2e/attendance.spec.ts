@@ -35,7 +35,7 @@ test.describe('E3.7–E3.8: Fichaje, correcciones y aprobación de jornadas', ()
     try {
       // ── Onboarding inicial hasta dejar la relación ACTIVE ──────────────────
       await ingresar(familia.page, familia.email);
-      await familia.page.getByRole('link', { name: 'Crear mi perfil de familia' }).click();
+      await familia.page.goto('/onboarding/familia');
       await crearPerfil(familia.page, {
         nombre: 'Carolina',
         apellido: 'Martínez',
@@ -56,7 +56,7 @@ test.describe('E3.7–E3.8: Fichaje, correcciones y aprobación de jornadas', ()
       await trabajadora.page.goto(`/invitacion/${token}`);
       await trabajadora.page.getByRole('link', { name: /Ingresar con/ }).click();
       await ingresar(trabajadora.page, trabajadora.email);
-      await trabajadora.page.getByRole('link', { name: 'Crear mi perfil de trabajadora' }).click();
+      await trabajadora.page.goto('/onboarding/trabajadora');
       await crearPerfil(trabajadora.page, {
         nombre: 'Rosa',
         apellido: 'López',
