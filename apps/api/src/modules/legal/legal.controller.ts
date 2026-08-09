@@ -4,6 +4,7 @@ import { Public } from '../../common/auth/auth.types';
 import { AppError, NotFoundError } from '../../common/http/app.errors';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { APP_CONFIG, type AppConfig } from '../../config/app-config';
+import { effectiveDocumentWhere } from './effective-document';
 
 export interface LegalDocumentView {
   kind: string;
@@ -41,45 +42,52 @@ export class LegalController {
     const kind = TIPOS[tipo];
     if (kind === undefined) throw new NotFoundError('No encontramos ese documento.');
 
-    // Buscar si existe un documento explícitamente APROBADO
-    const documentoAprobado = await this.prisma.consentDocument.findFirst({
-      where: { kind, version: { contains: 'approved' } },
-      orderBy: { publishedAt: 'desc' },
+    // Vigente = APPROVED con effectiveFrom ya cumplido. Un aprobado con vigencia
+    // futura y un RETIRED no califican, aunque sean los más recientes.
+    const vigente = await this.prisma.consentDocument.findFirst({
+      where: effectiveDocumentWhere(kind),
+      orderBy: [{ effectiveFrom: 'desc' }, { publishedAt: 'desc' }],
     });
 
-    const documento =
-      documentoAprobado ??
-      (await this.prisma.consentDocument.findFirst({
-        where: { kind },
-        orderBy: { publishedAt: 'desc' },
-      }));
+    if (vigente !== null) {
+      return {
+        kind: vigente.kind,
+        version: vigente.version,
+        locale: vigente.locale,
+        body: vigente.body,
+        publishedAt: vigente.publishedAt.toISOString(),
+        status: vigente.status,
+        warningBanner: null,
+      };
+    }
 
-    if (documento === null) throw new NotFoundError('No encontramos ese documento.');
-
-    const isApproved = documentoAprobado !== null;
-    const isProduction = this.config.NODE_ENV === 'production';
-
-    if (!isApproved && isProduction) {
+    // Sin versión vigente, producción no sirve un borrador: preferimos 412 antes
+    // que dejar a alguien aceptando un texto no vinculante.
+    if (this.config.NODE_ENV === 'production') {
       throw new AppError(
         'LEGAL_DOCUMENT_NOT_APPROVED',
-        'No hay una versión aprobada del documento legal para producción.',
+        'No hay una versión aprobada y vigente del documento legal.',
         412,
       );
     }
 
-    const warningBanner = !isApproved
-      ? 'AVISO DE DESARROLLO: Este texto es un borrador no vinculante para pruebas y desarrollo.'
-      : null;
+    const borrador = await this.prisma.consentDocument.findFirst({
+      where: { kind, status: { not: 'RETIRED' } },
+      orderBy: { publishedAt: 'desc' },
+    });
 
-    const body = warningBanner ? `[${warningBanner}]\n\n${documento.body}` : documento.body;
+    if (borrador === null) throw new NotFoundError('No encontramos ese documento.');
+
+    const warningBanner =
+      'AVISO DE DESARROLLO: Este texto es un borrador no vinculante para pruebas y desarrollo.';
 
     return {
-      kind: documento.kind,
-      version: documento.version,
-      locale: documento.locale,
-      body,
-      publishedAt: documento.publishedAt.toISOString(),
-      status: isApproved ? 'APPROVED' : 'DRAFT',
+      kind: borrador.kind,
+      version: borrador.version,
+      locale: borrador.locale,
+      body: `[${warningBanner}]\n\n${borrador.body}`,
+      publishedAt: borrador.publishedAt.toISOString(),
+      status: borrador.status,
       warningBanner,
     };
   }

@@ -150,18 +150,46 @@ enum ConsentKind {
 
 /// Texto versionado. Se conserva el contenido exacto que la persona aceptó,
 /// no un puntero a la versión vigente.
+/// Ciclo de vida de un texto legal. Antes el estado se deducía de que la cadena
+/// `version` contuviera la palabra "approved", lo que convertía una convención
+/// de nombres en un control de cumplimiento.
+enum ConsentDocumentStatus {
+  DRAFT
+  UNDER_REVIEW
+  APPROVED
+  RETIRED
+
+  @@map("consent_document_status")
+}
+
 model ConsentDocument {
-  id          String      @id @default(uuid()) @db.Uuid
+  id          String                @id @default(uuid()) @db.Uuid
   kind        ConsentKind
   version     String
-  locale      String      @default("es-AR")
+  locale      String                @default("es-AR")
   body        String
   publishedAt DateTime
-  createdAt   DateTime    @default(now())
+  createdAt   DateTime              @default(now())
+
+  status      ConsentDocumentStatus @default(DRAFT)
+  /// Quién aprobó y cuándo. Obligatorios con status=APPROVED, verificado por
+  /// CHECK en la base: sin responsable, la aprobación no es auditable.
+  approvedAt  DateTime?
+  approvedBy  String?
+  /// Un documento aprobado puede tener vigencia futura. Sólo es exigible cuando
+  /// este instante ya pasó.
+  effectiveFrom DateTime?
+
+  /// Una versión nueva reemplaza a la anterior en una fila nueva. La versión que
+  /// alguien ya aceptó no se modifica nunca (INV-CONSENT-01).
+  supersedesDocumentId String?          @db.Uuid
+  supersedes           ConsentDocument? @relation("ConsentDocumentSupersession", fields: [supersedesDocumentId], references: [id])
+  supersededBy         ConsentDocument[] @relation("ConsentDocumentSupersession")
 
   consents    Consent[]
 
   @@unique([kind, version, locale])
+  @@index([kind, status, effectiveFrom])
   @@map("consent_document")
 }
 
@@ -1638,19 +1666,44 @@ model AuditEvent {
 
 /// Outbox: efectos externos publicados en la misma transacción que el cambio de
 /// negocio, y entregados después por un worker (decisión D9, sección 14.1).
+/// Estado explícito del mensaje. Antes se infería de `processedAt` y `attempts`,
+/// que no alcanza para distinguir "lo está procesando otra instancia" de
+/// "está esperando su próximo intento".
+enum OutboxStatus {
+  PENDING
+  PROCESSING
+  DELIVERED
+  DEAD_LETTER
+
+  @@map("outbox_status")
+}
+
 model OutboxMessage {
-  id            String    @id @default(uuid()) @db.Uuid
+  id            String       @id @default(uuid()) @db.Uuid
   topic         String
   payload       Json
   correlationId String?
-  attempts      Int       @default(0)
-  availableAt   DateTime  @default(now())
+  attempts      Int          @default(0)
+  availableAt   DateTime     @default(now())
   processedAt   DateTime?
   lastError     String?
 
-  createdAt     DateTime  @default(now())
+  status        OutboxStatus @default(PENDING)
+
+  /// Identidad de la instancia que tomó el mensaje. Sirve para diagnosticar
+  /// quién lo tenía cuando algo quedó colgado.
+  processingBy  String?
+  processingStartedAt DateTime?
+  /// Vencimiento del lease. Si la instancia muere mientras procesa, otra puede
+  /// recuperar el mensaje recién cuando este instante quedó atrás.
+  leaseExpiresAt DateTime?
+
+  createdAt     DateTime     @default(now())
 
   @@index([processedAt, availableAt])
+  /// Índice del claim: filtra por estado y disponibilidad en el mismo orden en
+  /// que lo hace la consulta con FOR UPDATE SKIP LOCKED.
+  @@index([status, availableAt])
   @@map("outbox_message")
 }
 

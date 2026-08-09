@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { buildKeyring } from '../common/crypto/field-encryption';
 
 /**
  * Configuración de la aplicación, validada al arrancar.
@@ -44,10 +45,25 @@ export const appConfigSchema = z.object({
   JWT_REFRESH_SECRET: z
     .string()
     .min(32, 'El secreto de refresco debe tener al menos 32 caracteres.'),
+  /**
+   * Secreto del HMAC con el que se derivan los hashes de códigos OTP y tokens de
+   * invitación (`TokenService`). No cifra nada: no participa del keyring.
+   */
   FIELD_ENCRYPTION_KEY: z
     .string()
     .min(32, 'La clave de cifrado debe tener al menos 32 caracteres.'),
-  FIELD_ENCRYPTION_KEY_ID: z.string().min(1),
+
+  /**
+   * Keyring de cifrado de campos, en formato `v1:<base64>,v2:<base64>`.
+   *
+   * Cada clave debe decodificar a exactamente 32 bytes; `loadAppConfig` lo
+   * verifica y no arranca si alguna no cumple. Las claves anteriores se conservan
+   * acá mientras existan payloads cifrados con ellas: retirarlas antes vuelve
+   * ilegible lo que cifraron.
+   */
+  FIELD_ENCRYPTION_KEYS: z.string().min(1),
+  /** Identificador de la clave con la que se cifran los payloads nuevos. */
+  FIELD_ENCRYPTION_ACTIVE_KEY_ID: z.string().min(1),
 
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
 
@@ -69,7 +85,12 @@ export const appConfigSchema = z.object({
    * variable mal puesta abriría una puerta de entrada sin autenticación.
    */
   FEATURE_TEST_SUPPORT_ENDPOINTS: booleanFromString.default('false'),
-  TEST_SUPPORT_SECRET: z.string().min(16).default('test-support-secret-32-chars-length'),
+  /**
+   * Sin valor por defecto a propósito. Un default incrustado en el código es un
+   * secreto conocido: cualquiera que lea el repositorio puede usarlo. Sólo se
+   * exige cuando los endpoints de apoyo están habilitados.
+   */
+  TEST_SUPPORT_SECRET: z.string().min(16).optional(),
 
   // ── Feature flags ─────────────────────────────────────────────────────────
   /**
@@ -110,6 +131,10 @@ export function loadAppConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   }
 
   const config = result.data;
+
+  // El keyring se construye acá para que una clave mal configurada impida el
+  // arranque, y no falle recién cuando haya que descifrar un OTP en producción.
+  buildKeyring(config.FIELD_ENCRYPTION_KEYS, config.FIELD_ENCRYPTION_ACTIVE_KEY_ID);
 
   // En producción, ciertos valores de desarrollo son un error, no una advertencia.
   if (config.NODE_ENV === 'production') {

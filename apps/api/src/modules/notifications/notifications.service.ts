@@ -1,48 +1,37 @@
-import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
-import { createTransport, type Transporter } from 'nodemailer';
-import { APP_CONFIG, type AppConfig } from '../../config/app-config';
-import { PrismaService, type PrismaTx } from '../../common/prisma/prisma.service';
+import { Inject, Injectable, Optional } from '@nestjs/common';
+import { type PrismaTx } from '../../common/prisma/prisma.service';
 import { OutboxNotificationService } from './outbox-notification.service';
 import { TestNotificationSink } from './test-notification-sink';
 
 /**
  * Correo saliente.
  *
- * En desarrollo apunta a Mailpit, que captura todo y no deja salir nada a
- * Internet. En producción se configura un SMTP real por variables de entorno.
+ * **Nada de esto envía un correo.** Cada método encola un mensaje en el outbox
+ * dentro de la transacción que recibe, y el `OutboxProcessorWorker` lo entrega
+ * después. Por eso `tx` es obligatorio y no tiene alternativa: si el encolado
+ * pudiera ocurrir fuera de la transacción del cambio de negocio, un corte entre
+ * el commit y el encolado haría desaparecer la notificación sin dejar rastro, que
+ * es exactamente lo que el patrón outbox existe para impedir
+ * (docs/adr/0003-otp-outbox-security.md).
  *
  * Las plantillas son texto plano en español. No hay HTML todavía: el recorrido
  * necesita que el mensaje llegue y se entienda, no que sea bonito.
  */
 @Injectable()
 export class NotificationsService {
-  private readonly logger = new Logger(NotificationsService.name);
-  private readonly transporter: Transporter;
-
   constructor(
-    private readonly prisma: PrismaService,
     private readonly outbox: OutboxNotificationService,
     @Optional()
     @Inject(TestNotificationSink)
     private readonly testSink: TestNotificationSink | null,
-    @Inject(APP_CONFIG) private readonly config: AppConfig,
-  ) {
-    this.transporter = createTransport({
-      host: config.SMTP_HOST,
-      port: config.SMTP_PORT,
-      secure: config.SMTP_SECURE,
-      ...(config.SMTP_USER === undefined
-        ? {}
-        : { auth: { user: config.SMTP_USER, pass: config.SMTP_PASSWORD } }),
-    });
-  }
+  ) {}
 
-  async sendAccessCode(to: string, code: string, ttlMinutes: number, tx?: PrismaTx): Promise<void> {
+  async sendAccessCode(tx: PrismaTx, to: string, code: string, ttlMinutes: number): Promise<void> {
     if (this.testSink) {
       this.testSink.recordAccessCode(to, code);
     }
 
-    await this.outbox.enqueueEmail(tx ?? this.prisma, {
+    await this.outbox.enqueueEmail(tx, {
       to,
       subject: 'Tu código de ingreso',
       text: '',
@@ -52,14 +41,17 @@ export class NotificationsService {
     });
   }
 
-  async sendWorkerInvitation(input: {
-    to: string;
-    employerName: string;
-    householdLabel: string;
-    acceptUrl: string;
-    expiresAt: Date;
-  }): Promise<void> {
-    await this.send({
+  async sendWorkerInvitation(
+    tx: PrismaTx,
+    input: {
+      to: string;
+      employerName: string;
+      householdLabel: string;
+      acceptUrl: string;
+      expiresAt: Date;
+    },
+  ): Promise<void> {
+    await this.send(tx, {
       to: input.to,
       subject: `${input.employerName} te invitó a registrar tu trabajo`,
       text: [
@@ -78,12 +70,15 @@ export class NotificationsService {
     });
   }
 
-  async sendInvitationRevoked(input: {
-    to: string;
-    employerName: string;
-    householdLabel: string;
-  }): Promise<void> {
-    await this.send({
+  async sendInvitationRevoked(
+    tx: PrismaTx,
+    input: {
+      to: string;
+      employerName: string;
+      householdLabel: string;
+    },
+  ): Promise<void> {
+    await this.send(tx, {
       to: input.to,
       subject: 'La invitación fue dada de baja',
       text: [
@@ -95,13 +90,16 @@ export class NotificationsService {
     });
   }
 
-  async sendInvitationAccepted(input: {
-    to: string;
-    workerName: string;
-    householdLabel: string;
-    dashboardUrl: string;
-  }): Promise<void> {
-    await this.send({
+  async sendInvitationAccepted(
+    tx: PrismaTx,
+    input: {
+      to: string;
+      workerName: string;
+      householdLabel: string;
+      dashboardUrl: string;
+    },
+  ): Promise<void> {
+    await this.send(tx, {
       to: input.to,
       subject: `${input.workerName} aceptó la invitación`,
       text: [
@@ -115,13 +113,16 @@ export class NotificationsService {
     });
   }
 
-  async sendConditionsReadyForReview(input: {
-    to: string;
-    employerName: string;
-    householdLabel: string;
-    reviewUrl: string;
-  }): Promise<void> {
-    await this.send({
+  async sendConditionsReadyForReview(
+    tx: PrismaTx,
+    input: {
+      to: string;
+      employerName: string;
+      householdLabel: string;
+      reviewUrl: string;
+    },
+  ): Promise<void> {
+    await this.send(tx, {
       to: input.to,
       subject: 'Tenés condiciones de trabajo para revisar',
       text: [
@@ -137,12 +138,15 @@ export class NotificationsService {
     });
   }
 
-  async sendConditionsAccepted(input: {
-    to: string;
-    workerName: string;
-    householdLabel: string;
-  }): Promise<void> {
-    await this.send({
+  async sendConditionsAccepted(
+    tx: PrismaTx,
+    input: {
+      to: string;
+      workerName: string;
+      householdLabel: string;
+    },
+  ): Promise<void> {
+    await this.send(tx, {
       to: input.to,
       subject: `${input.workerName} aceptó las condiciones`,
       text: [
@@ -154,8 +158,11 @@ export class NotificationsService {
     });
   }
 
-  private async send(message: { to: string; subject: string; text: string }): Promise<void> {
-    await this.outbox.enqueueEmail(this.prisma, message);
+  private async send(
+    tx: PrismaTx,
+    message: { to: string; subject: string; text: string },
+  ): Promise<void> {
+    await this.outbox.enqueueEmail(tx, message);
   }
 }
 

@@ -114,9 +114,13 @@ export class IdentityService {
         after: { destination, expiresAt: expiresAt.toISOString() },
         correlationId: context.correlationId,
       });
-    });
 
-    await this.notifications.sendAccessCode(destination, code, OTP_TTL_MINUTES);
+      // El código hasheado y el correo que lo transporta se persisten juntos. Si
+      // el encolado quedara fuera, un corte dejaría un código válido en la base
+      // que nunca llegó a destino: la persona pediría otro y el anterior seguiría
+      // ocupando el lugar del vigente.
+      await this.notifications.sendAccessCode(tx, destination, code, OTP_TTL_MINUTES);
+    });
   }
 
   /**

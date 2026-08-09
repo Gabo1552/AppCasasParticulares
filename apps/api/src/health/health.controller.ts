@@ -5,6 +5,7 @@ import { Public } from '../common/auth/auth.types';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { APP_CONFIG, type AppConfig } from '../config/app-config';
 import { RedisSessionRevocationService } from '../modules/identity/redis-session-revocation.service';
+import { effectiveDocumentWhere } from '../modules/legal/effective-document';
 
 /**
  * Verificaciones de salud (NFR-09).
@@ -40,7 +41,7 @@ export class HealthController {
       },
       redis: async () => {
         try {
-          await this.sessionRevocation.isSessionRevoked('health-check-ping');
+          await this.sessionRevocation.ping();
           return { status: HealthStatus.UP };
         } catch (error) {
           return { status: HealthStatus.DOWN, detail: (error as Error).message };
@@ -55,10 +56,10 @@ export class HealthController {
         }
 
         const terms = await this.prisma.consentDocument.findFirst({
-          where: { kind: 'TERMS_OF_SERVICE', version: { contains: 'approved' } },
+          where: effectiveDocumentWhere('TERMS_OF_SERVICE'),
         });
         const privacy = await this.prisma.consentDocument.findFirst({
-          where: { kind: 'PRIVACY_POLICY', version: { contains: 'approved' } },
+          where: effectiveDocumentWhere('PRIVACY_POLICY'),
         });
 
         if (terms === null || privacy === null) {

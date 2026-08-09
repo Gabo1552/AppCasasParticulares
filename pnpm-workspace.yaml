@@ -21,6 +21,27 @@ onlyBuiltDependencies:
 # Versiones forzadas en todo el árbol de dependencias. Las que no son de tipos
 # son remediaciones de vulnerabilidades: bajarlas reabre el hallazgo que
 # `pnpm audit --audit-level high` verifica en CI.
+# Hallazgos de `pnpm audit` aceptados con fundamento.
+#
+# No es una forma de silenciar el escaneo: cada entrada dice por qué se acepta y
+# qué la haría desaparecer. Todo lo que no esté acá sigue rompiendo el pipeline.
+auditConfig:
+  ignoreGhsas:
+    # image-size <= 2.0.2 — denegación de servicio por bucle infinito al parsear
+    # ICNS, JXL y HEIF.
+    #
+    # No hay versión corregida: 2.0.2 es la última publicada y es la vulnerable,
+    # así que ningún override lo resuelve. Llega por
+    # apps/mobile → react-native → metro, que es el bundler de desarrollo de la
+    # app móvil: no se ejecuta en el servidor, no procesa entrada de usuarios y
+    # apps/mobile todavía no tiene build real (docs/implementation-roadmap.md §7).
+    # El vector exige abrir una imagen malformada en la máquina de quien
+    # desarrolla.
+    #
+    # Se revisa cuando metro publique una versión que suba image-size.
+    - 'GHSA-w3rx-r6r6-pgpr'
+    - 'GHSA-5p2g-fcmc-qvqq'
+
 overrides:
   '@types/react': '19.2.18'
   '@types/react-dom': '19.2.4'

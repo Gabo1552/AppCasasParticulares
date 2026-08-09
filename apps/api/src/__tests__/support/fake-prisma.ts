@@ -227,6 +227,23 @@ export class FakePrisma {
   }));
 
   /**
+   * El outbox aparece acá porque los servicios de negocio encolan la notificación
+   * **dentro** de su propia transacción. Sin esta tabla, cualquier operación que
+   * notifique fallaría en el doble por una razón que no tiene que ver con lo que
+   * la prueba quiere verificar.
+   */
+  readonly outboxMessage = new FakeTable('outboxMessage', () => ({
+    attempts: 0,
+    status: 'PENDING',
+    processedAt: null,
+    lastError: null,
+    correlationId: null,
+    processingBy: null,
+    processingStartedAt: null,
+    leaseExpiresAt: null,
+  }));
+
+  /**
    * Ejecuta el callback con el mismo cliente. El doble no simula rollback: las
    * pruebas que dependen de la atomicidad real corren contra PostgreSQL.
    */
@@ -243,6 +260,7 @@ export class FakePrisma {
       this.auditEvent,
       this.workerInvitation,
       this.employmentRelationship,
+      this.outboxMessage,
     ]) {
       table.rows.length = 0;
     }

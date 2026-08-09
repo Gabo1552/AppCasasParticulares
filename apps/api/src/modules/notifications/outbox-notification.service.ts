@@ -1,38 +1,6 @@
-import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
-import { Inject, Injectable } from '@nestjs/common';
-import { PrismaService, type PrismaTx } from '../../common/prisma/prisma.service';
-import { APP_CONFIG, type AppConfig } from '../../config/app-config';
-
-export function encryptOtpPayload(otp: string, secretKey: string, keyId = 'v1'): string {
-  const key = Buffer.from(secretKey.padEnd(32, '0').slice(0, 32));
-  const iv = randomBytes(12);
-  const cipher = createCipheriv('aes-256-gcm', key, iv);
-  const encrypted = Buffer.concat([cipher.update(otp, 'utf8'), cipher.final()]);
-  const tag = cipher.getAuthTag();
-  return `${keyId}:${iv.toString('hex')}:${tag.toString('hex')}:${encrypted.toString('hex')}`;
-}
-
-export function decryptOtpPayload(encryptedPayload: string, secretKey: string): string {
-  const parts = encryptedPayload.split(':');
-  let ivHex: string | undefined;
-  let tagHex: string | undefined;
-  let contentHex: string | undefined;
-
-  if (parts.length === 4) {
-    [, ivHex, tagHex, contentHex] = parts;
-  } else if (parts.length === 3) {
-    [ivHex, tagHex, contentHex] = parts;
-  }
-
-  if (!ivHex || !tagHex || !contentHex) throw new Error('Payload cifrado inválido.');
-  const key = Buffer.from(secretKey.padEnd(32, '0').slice(0, 32));
-  const iv = Buffer.from(ivHex, 'hex');
-  const tag = Buffer.from(tagHex, 'hex');
-  const content = Buffer.from(contentHex, 'hex');
-  const decipher = createDecipheriv('aes-256-gcm', key, iv);
-  decipher.setAuthTag(tag);
-  return decipher.update(content) + decipher.final('utf8');
-}
+import { Injectable } from '@nestjs/common';
+import { FieldEncryptionService } from '../../common/crypto/field-encryption.service';
+import { type PrismaTx } from '../../common/prisma/prisma.service';
 
 export interface EnqueueEmailInput {
   to: string;
@@ -44,32 +12,29 @@ export interface EnqueueEmailInput {
   correlationId?: string;
 }
 
+/**
+ * Encolado en la tabla outbox.
+ *
+ * Recibe siempre el cliente transaccional de quien lo llama: el mensaje tiene que
+ * persistir en la **misma** transacción que el cambio de negocio que lo motiva
+ * (docs/adr/0003-otp-outbox-security.md). Si el encolado quedara fuera, un corte
+ * entre el commit y el encolado haría desaparecer la notificación sin rastro.
+ */
 @Injectable()
 export class OutboxNotificationService {
-  constructor(
-    private readonly prisma: PrismaService,
-    @Inject(APP_CONFIG) private readonly config: AppConfig,
-  ) {}
+  constructor(private readonly fieldEncryption: FieldEncryptionService) {}
 
-  /**
-   * Encola un mensaje en la tabla outbox dentro de una transacción Prisma.
-   */
   async enqueueEmail(tx: PrismaTx, input: EnqueueEmailInput): Promise<void> {
-    const client = tx ?? this.prisma;
-
     let payload: Record<string, unknown>;
 
-    if (input.isOtp && input.rawOtp) {
-      const encryptedOtp = encryptOtpPayload(
-        input.rawOtp,
-        this.config.FIELD_ENCRYPTION_KEY,
-        this.config.FIELD_ENCRYPTION_KEY_ID,
-      );
+    if (input.isOtp === true && input.rawOtp !== undefined) {
+      // El OTP nunca se guarda en claro, ni siquiera dentro del payload del
+      // outbox: la fila vive en la base hasta que se procesa y queda auditada.
       payload = {
         to: input.to,
         subject: input.subject,
         isOtp: true,
-        encryptedOtp,
+        encryptedOtp: this.fieldEncryption.encrypt(input.rawOtp),
         ttlMinutes: input.ttlMinutes ?? 10,
       };
     } else {
@@ -80,7 +45,7 @@ export class OutboxNotificationService {
       };
     }
 
-    await client.outboxMessage.create({
+    await tx.outboxMessage.create({
       data: {
         topic: 'notification.send_email',
         payload: payload as object,

@@ -41,7 +41,8 @@ const TEST_ENV: Record<string, string> = {
   JWT_ACCESS_SECRET: 'test-only-access-secret-con-mas-de-32-caracteres',
   JWT_REFRESH_SECRET: 'test-only-refresh-secret-con-mas-de-32-caracteres',
   FIELD_ENCRYPTION_KEY: 'test-only-field-encryption-key-32-chars',
-  FIELD_ENCRYPTION_KEY_ID: 'test-key-1',
+  FIELD_ENCRYPTION_KEYS: 'v1:vTJ+niLRgXbTlQCOQC+503f5ne6YFzrG2DSk0KJSC1w=',
+  FIELD_ENCRYPTION_ACTIVE_KEY_ID: 'v1',
 };
 
 describe('Arranque de la aplicación', () => {

@@ -123,7 +123,7 @@ const paymentProviderProvider: Provider = {
   imports: [
     // Recorrido de onboarding: identity, users, employers, workers, households,
     // employment-relationships, work-schedules, notifications y audit.
-    OnboardingModule,
+    OnboardingModule.register(),
 
     UsersModule,
     AuditModule,

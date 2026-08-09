@@ -47,7 +47,9 @@ function buildService() {
   const sentLinks: string[] = [];
 
   const notifications = {
-    sendWorkerInvitation: vi.fn((input: { acceptUrl: string }) => {
+    // El primer parámetro es la transacción: el aviso se encola en el outbox
+    // dentro de la misma transacción que crea o reenvía la invitación.
+    sendWorkerInvitation: vi.fn((_tx: unknown, input: { acceptUrl: string }) => {
       sentLinks.push(input.acceptUrl);
       return Promise.resolve();
     }),

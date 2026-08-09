@@ -36,16 +36,18 @@ function buildService(): {
   const sentCodes: string[] = [];
   const tokens = new TokenService(config);
   const notifications = {
-    sendAccessCode: vi.fn((_to: string, code: string) => {
+    // El primer parámetro es la transacción: encolar en el outbox tiene que
+    // ocurrir dentro de la misma transacción que persiste el código.
+    sendAccessCode: vi.fn((_tx: unknown, _to: string, code: string) => {
       sentCodes.push(code);
       return Promise.resolve();
     }),
   } as unknown as NotificationsService;
 
   const sessionRevocation = {
-    revokeSession: vi.fn().mockResolvedValue(undefined),
-    revokeSessions: vi.fn().mockResolvedValue(undefined),
-    isSessionRevoked: vi.fn().mockResolvedValue(false),
+    revokeSession: vi.fn().mockResolvedValue(true),
+    revokeSessions: vi.fn().mockResolvedValue(true),
+    getRevocationState: vi.fn().mockResolvedValue('NOT_REVOKED'),
   } as unknown as RedisSessionRevocationService;
 
   const identity = new IdentityService(

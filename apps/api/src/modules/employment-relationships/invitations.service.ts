@@ -76,6 +76,10 @@ export class InvitationsService {
     const token = this.tokens.generateOpaqueToken();
     const expiresAt = new Date(Date.now() + input.expiresInDays * 24 * 60 * 60_000);
 
+    // Se resuelve antes de abrir la transacción: adentro sólo debe ocurrir
+    // escritura, y este dato sólo alimenta el texto del correo.
+    const employer = await this.employers.get(actor);
+
     const invitation = await this.prisma.$transaction(async (tx) => {
       const created = await tx.workerInvitation.create({
         data: {
@@ -104,16 +108,17 @@ export class InvitationsService {
         after: { workerEmail: created.workerEmail, householdId: created.householdId },
       });
 
-      return created;
-    });
+      // Misma transacción que la invitación y su evento de auditoría: o
+      // persisten los tres, o no persiste ninguno.
+      await this.notifications.sendWorkerInvitation(tx, {
+        to: created.workerEmail,
+        employerName: `${employer.firstName} ${employer.lastName}`,
+        householdLabel: household.label,
+        acceptUrl: `${this.config.WEB_BASE_URL}/invitacion/${token}`,
+        expiresAt,
+      });
 
-    const employer = await this.employers.get(actor);
-    await this.notifications.sendWorkerInvitation({
-      to: invitation.workerEmail,
-      employerName: `${employer.firstName} ${employer.lastName}`,
-      householdLabel: household.label,
-      acceptUrl: `${this.config.WEB_BASE_URL}/invitacion/${token}`,
-      expiresAt,
+      return created;
     });
 
     return toView(invitation, household.label);
@@ -169,6 +174,9 @@ export class InvitationsService {
     await this.assertUsable(invitation, actor);
 
     const workerId = await this.workers.requireWorkerId(actor);
+    // Necesario para el texto del aviso a la familia; se lee antes de abrir la
+    // transacción.
+    const worker = await this.workers.get(actor);
 
     const relationshipId = await this.prisma.$transaction(async (tx) => {
       // La transición valida la guarda del dominio antes de escribir.
@@ -221,18 +229,17 @@ export class InvitationsService {
         after: { status: nextStatus, householdId: invitation.householdId },
       });
 
+      if (invitation.employer.user.email !== null) {
+        await this.notifications.sendInvitationAccepted(tx, {
+          to: invitation.employer.user.email,
+          workerName: `${worker.firstName} ${worker.lastName}`,
+          householdLabel: invitation.household.label,
+          dashboardUrl: `${this.config.WEB_BASE_URL}/familia/relaciones/${relationship.id}`,
+        });
+      }
+
       return relationship.id;
     });
-
-    const worker = await this.workers.get(actor);
-    if (invitation.employer.user.email !== null) {
-      await this.notifications.sendInvitationAccepted({
-        to: invitation.employer.user.email,
-        workerName: `${worker.firstName} ${worker.lastName}`,
-        householdLabel: invitation.household.label,
-        dashboardUrl: `${this.config.WEB_BASE_URL}/familia/relaciones/${relationshipId}`,
-      });
-    }
 
     return { relationshipId };
   }
@@ -296,12 +303,12 @@ export class InvitationsService {
         },
         after: { reason: reason ?? null },
       });
-    });
 
-    await this.notifications.sendInvitationRevoked({
-      to: invitation.workerEmail,
-      employerName: invitation.employer.legalName,
-      householdLabel: invitation.household.label,
+      await this.notifications.sendInvitationRevoked(tx, {
+        to: invitation.workerEmail,
+        employerName: invitation.employer.legalName,
+        householdLabel: invitation.household.label,
+      });
     });
   }
 
@@ -346,15 +353,18 @@ export class InvitationsService {
         },
         after: { resentCount: result.resentCount, expiresAt: expiresAt.toISOString() },
       });
-      return result;
-    });
 
-    await this.notifications.sendWorkerInvitation({
-      to: invitation.workerEmail,
-      employerName: invitation.employer.legalName,
-      householdLabel: invitation.household.label,
-      acceptUrl: `${this.config.WEB_BASE_URL}/invitacion/${token}`,
-      expiresAt,
+      // El token nuevo y el aviso que lo transporta se persisten juntos: si el
+      // encolado fallara, el token anterior seguiría siendo el válido.
+      await this.notifications.sendWorkerInvitation(tx, {
+        to: invitation.workerEmail,
+        employerName: invitation.employer.legalName,
+        householdLabel: invitation.household.label,
+        acceptUrl: `${this.config.WEB_BASE_URL}/invitacion/${token}`,
+        expiresAt,
+      });
+
+      return result;
     });
 
     return toView(updated, updated.household.label);

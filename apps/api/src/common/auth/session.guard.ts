@@ -12,6 +12,7 @@ import { ACCESS_TOKEN_COOKIE } from './cookies';
 import { IS_PUBLIC_KEY, ROLES_KEY, type RequestWithActor } from './auth.types';
 
 import { RedisSessionRevocationService } from '../../modules/identity/redis-session-revocation.service';
+import { PrismaService } from '../prisma/prisma.service';
 
 /**
  * Guard de sesión y RBAC.
@@ -29,6 +30,7 @@ export class SessionGuard implements CanActivate {
     private readonly reflector: Reflector,
     private readonly accessTokens: AccessTokenService,
     private readonly sessionRevocation: RedisSessionRevocationService,
+    private readonly prisma: PrismaService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -56,13 +58,21 @@ export class SessionGuard implements CanActivate {
       });
     }
 
-    const isRevoked = await this.sessionRevocation.isSessionRevoked(payload.sid);
-    if (isRevoked) {
+    // Redis primero: es la denylist inmediata y resuelve el caso frecuente sin
+    // tocar la base. Pero no decide sola — sólo puede adelantar un rechazo.
+    const revocationState = await this.sessionRevocation.getRevocationState(payload.sid);
+    if (revocationState === 'REVOKED') {
       throw new UnauthorizedException({
         code: 'AUTH_SESSION_REVOKED',
         message: 'Tu sesión fue revocada. Volvé a ingresar.',
       });
     }
+
+    // PostgreSQL es la fuente de verdad. Cuesta una consulta por request y para
+    // el piloto es un precio aceptable frente a la alternativa: si Redis está
+    // caído durante un logout, el marcador nunca se escribe y el access token
+    // seguiría siendo válido hasta expirar (docs/security-model.md §2).
+    await this.assertSessionIsActive(payload.sid, payload.sub);
 
     request.actor = {
       userId: payload.sub,
@@ -88,6 +98,31 @@ export class SessionGuard implements CanActivate {
     }
 
     return true;
+  }
+
+  /**
+   * La sesión tiene que existir, ser de este usuario, no estar revocada y no
+   * haber vencido. Las cuatro condiciones se verifican en la base, no en el token:
+   * el JWT afirma lo que era cierto cuando se emitió.
+   */
+  private async assertSessionIsActive(sessionId: string, userId: string): Promise<void> {
+    const session = await this.prisma.session.findUnique({
+      where: { id: sessionId },
+      select: { userId: true, revokedAt: true, expiresAt: true },
+    });
+
+    const isActive =
+      session !== null &&
+      session.userId === userId &&
+      session.revokedAt === null &&
+      session.expiresAt > new Date();
+
+    if (!isActive) {
+      throw new UnauthorizedException({
+        code: 'AUTH_SESSION_REVOKED',
+        message: 'Tu sesión fue revocada. Volvé a ingresar.',
+      });
+    }
   }
 }
 

@@ -77,7 +77,11 @@ jobs:
       JWT_ACCESS_SECRET: ci-only-access-secret-not-used-anywhere-else
       JWT_REFRESH_SECRET: ci-only-refresh-secret-not-used-anywhere-else
       FIELD_ENCRYPTION_KEY: ci-only-field-encryption-key-32-chars
-      FIELD_ENCRYPTION_KEY_ID: ci-key-1
+      FIELD_ENCRYPTION_KEYS: v1:jNexhNYLeyS6CJuqkTm61ONh7sGrWOaA+UPUvsQGzr0=
+      FIELD_ENCRYPTION_ACTIVE_KEY_ID: v1
+      # Los endpoints de apoyo sólo existen con NODE_ENV=test, y exigen secreto.
+      # Este vale para esta corrida y para nada más.
+      TEST_SUPPORT_SECRET: ci-only-test-support-secret-ephemeral
       FEATURE_TEST_SUPPORT_ENDPOINTS: 'true'
       # Se hornea en el bundle de Next durante el build, así que tiene que estar
       # antes del paso de build, no sólo al levantar el servidor.

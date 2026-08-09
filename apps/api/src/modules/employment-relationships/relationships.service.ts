@@ -223,17 +223,17 @@ export class RelationshipsService {
         },
         after: { status: nextStatus },
       });
-    });
 
-    const workerEmail = relationship.worker?.user.email;
-    if (workerEmail != null) {
-      await this.notifications.sendConditionsReadyForReview({
-        to: workerEmail,
-        employerName: relationship.employer.legalName,
-        householdLabel: relationship.household.label,
-        reviewUrl: `${this.config.WEB_BASE_URL}/trabajadora/relaciones/${id}`,
-      });
-    }
+      const workerEmail = relationship.worker?.user.email;
+      if (workerEmail != null) {
+        await this.notifications.sendConditionsReadyForReview(tx, {
+          to: workerEmail,
+          employerName: relationship.employer.legalName,
+          householdLabel: relationship.household.label,
+          reviewUrl: `${this.config.WEB_BASE_URL}/trabajadora/relaciones/${id}`,
+        });
+      }
+    });
 
     return this.getParticipating(actor, id);
   }
@@ -339,16 +339,16 @@ export class RelationshipsService {
         actor: { userId: actor.userId, role: PlatformRole.WORKER, ipAddress: actor.ipAddress },
         after: { status: nextStatus },
       });
-    });
 
-    const employerEmail = relationship.employer.user.email;
-    if (employerEmail != null && relationship.worker !== null) {
-      await this.notifications.sendConditionsAccepted({
-        to: employerEmail,
-        workerName: relationship.worker.legalName,
-        householdLabel: relationship.household.label,
-      });
-    }
+      const employerEmail = relationship.employer.user.email;
+      if (employerEmail != null && relationship.worker !== null) {
+        await this.notifications.sendConditionsAccepted(tx, {
+          to: employerEmail,
+          workerName: relationship.worker.legalName,
+          householdLabel: relationship.household.label,
+        });
+      }
+    });
 
     return this.getParticipating(actor, id);
   }
