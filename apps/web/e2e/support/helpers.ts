@@ -144,3 +144,21 @@ export async function cargarHorario(page: Page): Promise<void> {
   await page.getByRole('button', { name: 'Guardar horario' }).click();
   await expect(page.getByText('Guardamos el horario semanal.')).toBeVisible();
 }
+
+/** Inyecta una jornada aprobada histórica a través de test-support */
+export async function crearJornadaAprobadaHistorica(
+  request: APIRequestContext,
+  relationshipId: string,
+  dateStr: string,
+  minutes: number = 480,
+): Promise<string> {
+  const respuesta = await request.post(`${API_URL}/api/v1/test-support/seed-approved-workday`, {
+    data: { relationshipId, date: dateStr, minutes },
+    headers: { 'x-test-support-secret': secret },
+  });
+  expect(
+    respuesta.ok(),
+    `No se pudo crear la jornada aprobada histórica: ${await respuesta.text()}`,
+  ).toBeTruthy();
+  return ((await respuesta.json()) as { workDayId: string }).workDayId;
+}

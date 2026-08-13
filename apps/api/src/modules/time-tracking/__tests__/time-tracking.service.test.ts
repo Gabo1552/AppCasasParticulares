@@ -33,7 +33,11 @@ describe('TimeTrackingService (unit)', () => {
       update: ReturnType<typeof vi.fn>;
       updateMany: ReturnType<typeof vi.fn>;
     };
+    payrollPeriod: {
+      findFirst: ReturnType<typeof vi.fn>;
+    };
     $transaction: ReturnType<typeof vi.fn>;
+    $executeRawUnsafe?: ReturnType<typeof vi.fn>;
   };
   let audit: { record: ReturnType<typeof vi.fn> };
   let outbox: { enqueueEmail: ReturnType<typeof vi.fn> };
@@ -94,7 +98,11 @@ describe('TimeTrackingService (unit)', () => {
         update: vi.fn(),
         updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       },
+      payrollPeriod: {
+        findFirst: vi.fn().mockResolvedValue(null),
+      },
       $transaction: vi.fn(async (cb: (tx: unknown) => Promise<unknown>) => cb(prisma)),
+      $executeRawUnsafe: vi.fn().mockResolvedValue(undefined),
     };
 
     audit = {

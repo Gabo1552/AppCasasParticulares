@@ -1,15 +1,18 @@
 import { timingSafeEqual } from 'node:crypto';
 import {
+  Body,
   Controller,
   ForbiddenException,
   Get,
   Headers,
   Inject,
   Optional,
+  Post,
   Query,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ApiExcludeController } from '@nestjs/swagger';
+import { TimeEntryKind, TimeEntryStatus, WorkDayStatus } from '@casas/database';
 import { Public } from '../../common/auth/auth.types';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { NotFoundError } from '../../common/http/app.errors';
@@ -119,6 +122,88 @@ export class TestSupportController {
     });
 
     return { token };
+  }
+
+  /** Crear una jornada aprobada para pruebas históricas (solo en entorno de test). */
+  @Public()
+  @Post('seed-approved-workday')
+  async seedApprovedWorkday(
+    @Body() body: { relationshipId: string; date: string; minutes?: number },
+    @Headers('x-test-support-secret') secretHeader?: string,
+  ): Promise<{ workDayId: string }> {
+    this.assertEnabled(secretHeader);
+
+    const minutes = body.minutes ?? 480;
+    const dateObj = new Date(`${body.date}T00:00:00.000Z`);
+    const clockInAt = new Date(`${body.date}T09:00:00.000Z`);
+    const clockOutAt = new Date(clockInAt.getTime() + minutes * 60000);
+
+    const relationship = await this.prisma.employmentRelationship.findUnique({
+      where: { id: body.relationshipId },
+      include: { employer: true, worker: true },
+    });
+    if (relationship === null) {
+      throw new NotFoundError('Relación no encontrada.');
+    }
+
+    const workDay = await this.prisma.workDay.upsert({
+      where: {
+        employmentRelationshipId_date: {
+          employmentRelationshipId: body.relationshipId,
+          date: dateObj,
+        },
+      },
+      update: {
+        status: WorkDayStatus.APPROVED,
+        approvedMinutes: minutes,
+        realMinutes: minutes,
+        computableMinutes: minutes,
+        approvedAt: new Date(),
+        approvedByUserId: relationship.employer.userId,
+      },
+      create: {
+        employmentRelationshipId: body.relationshipId,
+        date: dateObj,
+        status: WorkDayStatus.APPROVED,
+        approvedMinutes: minutes,
+        realMinutes: minutes,
+        computableMinutes: minutes,
+        approvedAt: new Date(),
+        approvedByUserId: relationship.employer.userId,
+        createdByUserId: relationship.worker?.userId ?? relationship.employer.userId,
+      },
+    });
+
+    await this.prisma.timeEntry.createMany({
+      data: [
+        {
+          employmentRelationshipId: body.relationshipId,
+          workDayId: workDay.id,
+          clientIdempotencyKey: this.tokens.generateOpaqueToken(),
+          kind: TimeEntryKind.CLOCK_IN,
+          status: TimeEntryStatus.APPROVED,
+          declaredAt: clockInAt,
+          receivedAt: clockInAt,
+          timezone: 'America/Argentina/Buenos_Aires',
+          method: 'BUTTON',
+          createdByUserId: relationship.worker?.userId ?? relationship.employer.userId,
+        },
+        {
+          employmentRelationshipId: body.relationshipId,
+          workDayId: workDay.id,
+          clientIdempotencyKey: this.tokens.generateOpaqueToken(),
+          kind: TimeEntryKind.CLOCK_OUT,
+          status: TimeEntryStatus.APPROVED,
+          declaredAt: clockOutAt,
+          receivedAt: clockOutAt,
+          timezone: 'America/Argentina/Buenos_Aires',
+          method: 'BUTTON',
+          createdByUserId: relationship.worker?.userId ?? relationship.employer.userId,
+        },
+      ],
+    });
+
+    return { workDayId: workDay.id };
   }
 }
 

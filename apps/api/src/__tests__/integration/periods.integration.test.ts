@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { describe, expect, it, beforeAll, afterAll } from 'vitest';
 import {
   PrismaClient,
@@ -115,7 +116,7 @@ describe('Pruebas de Integración PostgreSQL — Período Mensual y Cierre de As
         employerId: empProfile.id,
         workerId: wrkProfile.id,
         householdId: household.id,
-        startDate: new Date('2026-08-01T00:00:00.000Z'),
+        startDate: new Date('2025-01-01T00:00:00.000Z'),
         status: 'ACTIVE',
         version: 1,
       },
@@ -150,9 +151,6 @@ describe('Pruebas de Integración PostgreSQL — Período Mensual y Cierre de As
       employerActor,
       workerActor,
       strangerActor,
-      household,
-      userEmp,
-      userWrk,
     };
   }
 
@@ -161,41 +159,41 @@ describe('Pruebas de Integración PostgreSQL — Período Mensual y Cierre de As
     dateStr: string,
     minutes: number = 480,
   ) {
-    const date = new Date(`${dateStr}T00:00:00.000Z`);
-    const clockInAt = new Date(`${dateStr}T08:00:00.000Z`);
+    const dateObj = new Date(`${dateStr}T00:00:00.000Z`);
+    const clockInAt = new Date(`${dateStr}T09:00:00.000Z`);
     const clockOutAt = new Date(clockInAt.getTime() + minutes * 60000);
 
     const workDay = await prismaEmployer1.workDay.create({
       data: {
         employmentRelationshipId: relationshipId,
-        date,
+        date: dateObj,
         status: WorkDayStatus.APPROVED,
+        approvedMinutes: minutes,
         realMinutes: minutes,
         computableMinutes: minutes,
-        approvedMinutes: minutes,
         approvedAt: new Date(),
         version: 1,
         timeEntries: {
           create: [
             {
+              employmentRelationshipId: relationshipId,
+              clientIdempotencyKey: randomUUID(),
               kind: TimeEntryKind.CLOCK_IN,
               status: TimeEntryStatus.APPROVED,
               declaredAt: clockInAt,
               receivedAt: clockInAt,
-              method: 'MANUAL',
-              employmentRelationshipId: relationshipId,
               timezone: 'America/Argentina/Buenos_Aires',
-              clientIdempotencyKey: `key-in-${dateStr}-${Math.random()}`,
+              method: 'BUTTON',
             },
             {
+              employmentRelationshipId: relationshipId,
+              clientIdempotencyKey: randomUUID(),
               kind: TimeEntryKind.CLOCK_OUT,
               status: TimeEntryStatus.APPROVED,
               declaredAt: clockOutAt,
               receivedAt: clockOutAt,
-              method: 'MANUAL',
-              employmentRelationshipId: relationshipId,
               timezone: 'America/Argentina/Buenos_Aires',
-              clientIdempotencyKey: `key-out-${dateStr}-${Math.random()}`,
+              method: 'BUTTON',
             },
           ],
         },
@@ -209,24 +207,24 @@ describe('Pruebas de Integración PostgreSQL — Período Mensual y Cierre de As
   }
 
   describe('1. Flujo completo de revisión y cierre de asistencia con snapshot SHA-256', () => {
-    it('la familia revisa el resumen y cierra la asistencia de agosto 2026 creando snapshot inmutable', async () => {
+    it('la familia revisa el resumen y cierra la asistencia de un mes finalizado creando snapshot inmutable', async () => {
       const fixture = await createActiveRelationshipFixture();
 
-      // Creamos 3 jornadas aprobadas en agosto 2026
-      const d1 = await createApprovedWorkDay(fixture.relationship.id, '2026-08-03', 480);
-      const d2 = await createApprovedWorkDay(fixture.relationship.id, '2026-08-05', 480);
-      const d3 = await createApprovedWorkDay(fixture.relationship.id, '2026-08-07', 480);
+      // Creamos 3 jornadas aprobadas en mayo 2025 (mes finalizado)
+      const d1 = await createApprovedWorkDay(fixture.relationship.id, '2025-05-05', 480);
+      const d2 = await createApprovedWorkDay(fixture.relationship.id, '2025-05-07', 480);
+      const d3 = await createApprovedWorkDay(fixture.relationship.id, '2025-05-09', 480);
 
-      // 1. Obtener/Crear período de agosto 2026
+      // 1. Obtener/Crear período de mayo 2025
       const period = await periodsServiceEmp1.getOrCreate(
         fixture.employerActor,
         fixture.relationship.id,
-        { year: 2026, month: 8 },
+        { year: 2025, month: 5 },
       );
 
       expect(period.status).toBe('OPEN');
-      expect(period.year).toBe(2026);
-      expect(period.month).toBe(8);
+      expect(period.year).toBe(2025);
+      expect(period.month).toBe(5);
       expect(period.attendance.approvedDays).toBe(3);
       expect(period.attendance.approvedMinutes).toBe(1440);
       expect(period.attendance.openDays).toBe(0);
@@ -283,45 +281,66 @@ describe('Pruebas de Integración PostgreSQL — Período Mensual y Cierre de As
     });
   });
 
-  describe('2. Idempotencia concurrente en getOrCreate', () => {
+  describe('2. Invariante Temporal: Bloqueo de Cierre en Mes en Curso o Futuro', () => {
+    it('rechaza cerrar el mes actual con ATTENDANCE_PERIOD_NOT_FINISHED', async () => {
+      const fixture = await createActiveRelationshipFixture();
+      const now = new Date();
+      const currentYear = now.getFullYear();
+      const currentMonth = now.getMonth() + 1;
+
+      const period = await periodsServiceEmp1.getOrCreate(
+        fixture.employerActor,
+        fixture.relationship.id,
+        { year: currentYear, month: currentMonth },
+      );
+
+      await expect(
+        periodsServiceEmp1.closeAttendance(fixture.employerActor, period.id, {
+          expectedVersion: period.version,
+        }),
+      ).rejects.toThrow(UnprocessableError);
+    });
+  });
+
+  describe('3. Idempotencia concurrente en getOrCreate', () => {
     it('dos llamadas concurrentes a getOrCreate para el mismo mes crean exactamente 1 período', async () => {
       const fixture = await createActiveRelationshipFixture();
 
       const [res1, res2] = await Promise.all([
         periodsServiceEmp1.getOrCreate(fixture.employerActor, fixture.relationship.id, {
-          year: 2026,
-          month: 9,
+          year: 2025,
+          month: 6,
         }),
         periodsServiceEmp2.getOrCreate(fixture.employerActor, fixture.relationship.id, {
-          year: 2026,
-          month: 9,
+          year: 2025,
+          month: 6,
         }),
       ]);
 
       expect(res1.id).toBe(res2.id);
-      expect(res1.year).toBe(2026);
-      expect(res1.month).toBe(9);
+      expect(res1.year).toBe(2025);
+      expect(res1.month).toBe(6);
 
       const dbPeriods = await prismaEmployer1.payrollPeriod.findMany({
         where: {
           employmentRelationshipId: fixture.relationship.id,
-          year: 2026,
-          month: 9,
+          year: 2025,
+          month: 6,
         },
       });
       expect(dbPeriods).toHaveLength(1);
     });
   });
 
-  describe('3. Concurrencia real CAS en closeAttendance (Close vs Close)', () => {
+  describe('4. Concurrencia real CAS en closeAttendance (Close vs Close)', () => {
     it('dos clientes concurrentes intentando cerrar el mismo período: exactamente 1 gana, el otro recibe 409', async () => {
       const fixture = await createActiveRelationshipFixture();
-      await createApprovedWorkDay(fixture.relationship.id, '2026-08-10', 480);
+      await createApprovedWorkDay(fixture.relationship.id, '2025-05-10', 480);
 
       const period = await periodsServiceEmp1.getOrCreate(
         fixture.employerActor,
         fixture.relationship.id,
-        { year: 2026, month: 8 },
+        { year: 2025, month: 5 },
       );
 
       const results = await Promise.allSettled([
@@ -350,15 +369,64 @@ describe('Pruebas de Integración PostgreSQL — Período Mensual y Cierre de As
     });
   });
 
-  describe('4. Invariante de Bloqueo de Modificaciones y Correcciones en Período Cerrado', () => {
-    it('rechaza cualquier intento de solicitar corrección sobre una jornada de un período cerrado', async () => {
+  describe('5. Concurrencia real Transaccional: closeAttendance vs requestCorrection', () => {
+    it('ejecuta closeAttendance y requestCorrection concurrentemente sobre 2 PrismaClient: nunca ganan ambos', async () => {
       const fixture = await createActiveRelationshipFixture();
-      const workDay = await createApprovedWorkDay(fixture.relationship.id, '2026-08-15', 480);
+      const workDay = await createApprovedWorkDay(fixture.relationship.id, '2025-05-12', 480);
 
       const period = await periodsServiceEmp1.getOrCreate(
         fixture.employerActor,
         fixture.relationship.id,
-        { year: 2026, month: 8 },
+        { year: 2025, month: 5 },
+      );
+
+      const results = await Promise.allSettled([
+        periodsServiceEmp1.closeAttendance(fixture.employerActor, period.id, {
+          expectedVersion: period.version,
+        }),
+        correctionsWorker.requestCorrection(fixture.workerActor, workDay.id, {
+          reason: 'Ajuste de horario',
+          proposedClockInAt: '2025-05-12T08:30:00.000Z',
+          proposedClockOutAt: '2025-05-12T16:30:00.000Z',
+          expectedVersion: workDay.version,
+        }),
+      ]);
+
+      const fulfilled = results.filter((r) => r.status === 'fulfilled');
+      const rejected = results.filter((r) => r.status === 'rejected');
+
+      // Exactamente uno gana, el otro falla
+      expect(fulfilled).toHaveLength(1);
+      expect(rejected).toHaveLength(1);
+
+      const updatedWorkDay = await prismaEmployer1.workDay.findUniqueOrThrow({
+        where: { id: workDay.id },
+      });
+      const updatedPeriod = await prismaEmployer1.payrollPeriod.findUniqueOrThrow({
+        where: { id: period.id },
+      });
+
+      if (updatedPeriod.status === PayrollPeriodStatus.READY_FOR_CALCULATION) {
+        // Ganó closeAttendance: la jornada quedó vinculada al período cerrado y no está DISPUTED
+        expect(updatedWorkDay.payrollPeriodId).toBe(period.id);
+        expect(updatedWorkDay.status).toBe(WorkDayStatus.APPROVED);
+      } else {
+        // Ganó requestCorrection: la jornada quedó DISPUTED y el período sigue OPEN
+        expect(updatedWorkDay.status).toBe(WorkDayStatus.DISPUTED);
+        expect(updatedPeriod.status).toBe(PayrollPeriodStatus.OPEN);
+      }
+    });
+  });
+
+  describe('6. Invariante de Bloqueo de Modificaciones y ClockIn en Período Cerrado', () => {
+    it('rechaza cualquier intento de solicitar corrección sobre una jornada de un período cerrado', async () => {
+      const fixture = await createActiveRelationshipFixture();
+      const workDay = await createApprovedWorkDay(fixture.relationship.id, '2025-05-15', 480);
+
+      const period = await periodsServiceEmp1.getOrCreate(
+        fixture.employerActor,
+        fixture.relationship.id,
+        { year: 2025, month: 5 },
       );
 
       await periodsServiceEmp1.closeAttendance(fixture.employerActor, period.id, {
@@ -369,8 +437,8 @@ describe('Pruebas de Integración PostgreSQL — Período Mensual y Cierre de As
       await expect(
         correctionsWorker.requestCorrection(fixture.workerActor, workDay.id, {
           reason: 'Me olvidé de fichar el almuerzo',
-          proposedClockInAt: '2026-08-15T08:00:00.000Z',
-          proposedClockOutAt: '2026-08-15T16:00:00.000Z',
+          proposedClockInAt: '2025-05-15T08:00:00.000Z',
+          proposedClockOutAt: '2025-05-15T16:00:00.000Z',
           expectedVersion: workDay.version,
         }),
       ).rejects.toThrow(UnprocessableError);
@@ -378,12 +446,12 @@ describe('Pruebas de Integración PostgreSQL — Período Mensual y Cierre de As
 
     it('rechaza cualquier intento de aprobar jornada en un período cerrado', async () => {
       const fixture = await createActiveRelationshipFixture();
-      const workDay = await createApprovedWorkDay(fixture.relationship.id, '2026-08-18', 480);
+      const workDay = await createApprovedWorkDay(fixture.relationship.id, '2025-05-18', 480);
 
       const period = await periodsServiceEmp1.getOrCreate(
         fixture.employerActor,
         fixture.relationship.id,
-        { year: 2026, month: 8 },
+        { year: 2025, month: 5 },
       );
 
       await periodsServiceEmp1.closeAttendance(fixture.employerActor, period.id, {
@@ -399,12 +467,12 @@ describe('Pruebas de Integración PostgreSQL — Período Mensual y Cierre de As
 
     it('rechaza cualquier intento de fichar salida en una jornada perteneciente a un período cerrado', async () => {
       const fixture = await createActiveRelationshipFixture();
-      const workDay = await createApprovedWorkDay(fixture.relationship.id, '2026-08-20', 480);
+      const workDay = await createApprovedWorkDay(fixture.relationship.id, '2025-05-20', 480);
 
       const period = await periodsServiceEmp1.getOrCreate(
         fixture.employerActor,
         fixture.relationship.id,
-        { year: 2026, month: 8 },
+        { year: 2025, month: 5 },
       );
 
       await periodsServiceEmp1.closeAttendance(fixture.employerActor, period.id, {
@@ -418,14 +486,14 @@ describe('Pruebas de Integración PostgreSQL — Período Mensual y Cierre de As
       ).rejects.toThrow(UnprocessableError);
     });
 
-    it('rechaza cualquier intento de la familia de aprobar o rechazar corrección en un período cerrado', async () => {
+    it('rechaza cualquier intento de la familia de resolver corrección en un período cerrado', async () => {
       const fixture = await createActiveRelationshipFixture();
-      const workDay = await createApprovedWorkDay(fixture.relationship.id, '2026-08-22', 480);
+      const workDay = await createApprovedWorkDay(fixture.relationship.id, '2025-05-22', 480);
 
       const period = await periodsServiceEmp1.getOrCreate(
         fixture.employerActor,
         fixture.relationship.id,
-        { year: 2026, month: 8 },
+        { year: 2025, month: 5 },
       );
 
       await periodsServiceEmp1.closeAttendance(fixture.employerActor, period.id, {
@@ -443,16 +511,16 @@ describe('Pruebas de Integración PostgreSQL — Período Mensual y Cierre de As
     });
   });
 
-  describe('5. Invariantes de Bloqueo Pre-Cierre (Readiness & Empty checks)', () => {
+  describe('7. Invariantes de Bloqueo Pre-Cierre (Readiness & Empty checks)', () => {
     it('bloquea el cierre si hay jornadas en estado OPEN', async () => {
       const fixture = await createActiveRelationshipFixture();
-      await createApprovedWorkDay(fixture.relationship.id, '2026-08-01', 480);
+      await createApprovedWorkDay(fixture.relationship.id, '2025-05-01', 480);
 
       // Jornada OPEN
       await prismaEmployer1.workDay.create({
         data: {
           employmentRelationshipId: fixture.relationship.id,
-          date: new Date('2026-08-02T00:00:00.000Z'),
+          date: new Date('2025-05-02T00:00:00.000Z'),
           status: WorkDayStatus.OPEN,
         },
       });
@@ -460,7 +528,7 @@ describe('Pruebas de Integración PostgreSQL — Período Mensual y Cierre de As
       const period = await periodsServiceEmp1.getOrCreate(
         fixture.employerActor,
         fixture.relationship.id,
-        { year: 2026, month: 8 },
+        { year: 2025, month: 5 },
       );
 
       await expect(
@@ -472,13 +540,13 @@ describe('Pruebas de Integración PostgreSQL — Período Mensual y Cierre de As
 
     it('bloquea el cierre si hay jornadas en estado PENDING_APPROVAL', async () => {
       const fixture = await createActiveRelationshipFixture();
-      await createApprovedWorkDay(fixture.relationship.id, '2026-08-01', 480);
+      await createApprovedWorkDay(fixture.relationship.id, '2025-05-01', 480);
 
       // Jornada PENDING_APPROVAL
       await prismaEmployer1.workDay.create({
         data: {
           employmentRelationshipId: fixture.relationship.id,
-          date: new Date('2026-08-02T00:00:00.000Z'),
+          date: new Date('2025-05-02T00:00:00.000Z'),
           status: WorkDayStatus.PENDING_APPROVAL,
           realMinutes: 480,
           computableMinutes: 480,
@@ -488,7 +556,7 @@ describe('Pruebas de Integración PostgreSQL — Período Mensual y Cierre de As
       const period = await periodsServiceEmp1.getOrCreate(
         fixture.employerActor,
         fixture.relationship.id,
-        { year: 2026, month: 8 },
+        { year: 2025, month: 5 },
       );
 
       await expect(
@@ -504,7 +572,7 @@ describe('Pruebas de Integración PostgreSQL — Período Mensual y Cierre de As
       const period = await periodsServiceEmp1.getOrCreate(
         fixture.employerActor,
         fixture.relationship.id,
-        { year: 2026, month: 8 },
+        { year: 2025, month: 5 },
       );
 
       await expect(
@@ -515,15 +583,15 @@ describe('Pruebas de Integración PostgreSQL — Período Mensual y Cierre de As
     });
   });
 
-  describe('6. Aislamiento Multi-Tenant y Seguridad', () => {
+  describe('8. Aislamiento Multi-Tenant y Seguridad', () => {
     it('un usuario ajeno no puede obtener ni cerrar el período (404)', async () => {
       const fixture = await createActiveRelationshipFixture();
-      await createApprovedWorkDay(fixture.relationship.id, '2026-08-01', 480);
+      await createApprovedWorkDay(fixture.relationship.id, '2025-05-01', 480);
 
       const period = await periodsServiceEmp1.getOrCreate(
         fixture.employerActor,
         fixture.relationship.id,
-        { year: 2026, month: 8 },
+        { year: 2025, month: 5 },
       );
 
       await expect(
@@ -539,12 +607,12 @@ describe('Pruebas de Integración PostgreSQL — Período Mensual y Cierre de As
 
     it('la trabajadora no puede cerrar la asistencia del período (403)', async () => {
       const fixture = await createActiveRelationshipFixture();
-      await createApprovedWorkDay(fixture.relationship.id, '2026-08-01', 480);
+      await createApprovedWorkDay(fixture.relationship.id, '2025-05-01', 480);
 
       const period = await periodsServiceEmp1.getOrCreate(
         fixture.employerActor,
         fixture.relationship.id,
-        { year: 2026, month: 8 },
+        { year: 2025, month: 5 },
       );
 
       await expect(

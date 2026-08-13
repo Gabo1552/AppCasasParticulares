@@ -101,6 +101,8 @@ export function PeriodosAsistencia({ relacion, rol = 'FAMILY_EMPLOYER' }: Propie
     }
   }
 
+  const mesFinalizado =
+    anio < hoy.getFullYear() || (anio === hoy.getFullYear() && mes < hoy.getMonth() + 1);
   const esCerrado =
     periodo?.status === 'READY_FOR_CALCULATION' || periodo?.attendanceApprovedAt !== null;
   const tienePendientes =
@@ -318,7 +320,24 @@ export function PeriodosAsistencia({ relacion, rol = 'FAMILY_EMPLOYER' }: Propie
 
           {!esCerrado && (
             <div style={{ marginTop: '0.5rem' }}>
-              {tienePendientes && (
+              {!mesFinalizado && (
+                <div
+                  style={{
+                    background: '#f1f5f9',
+                    border: '1px solid #cbd5e1',
+                    padding: '0.85rem',
+                    borderRadius: '8px',
+                    color: '#334155',
+                    fontSize: '0.9rem',
+                    marginBottom: '1rem',
+                  }}
+                >
+                  El período mensual sigue en curso. Podrás cerrar la asistencia cuando finalice el
+                  mes.
+                </div>
+              )}
+
+              {mesFinalizado && tienePendientes && (
                 <div
                   style={{
                     background: '#fffbeb',
@@ -335,7 +354,7 @@ export function PeriodosAsistencia({ relacion, rol = 'FAMILY_EMPLOYER' }: Propie
                 </div>
               )}
 
-              {sinJornadas && !tienePendientes && (
+              {mesFinalizado && sinJornadas && !tienePendientes && (
                 <div
                   style={{
                     background: '#f8fafc',
@@ -356,7 +375,12 @@ export function PeriodosAsistencia({ relacion, rol = 'FAMILY_EMPLOYER' }: Propie
                   type="button"
                   className="boton"
                   id="boton-cerrar-asistencia-periodo"
-                  disabled={tienePendientes || sinJornadas}
+                  disabled={!mesFinalizado || tienePendientes || sinJornadas}
+                  title={
+                    !mesFinalizado
+                      ? 'Podrás cerrar la asistencia cuando finalice el período.'
+                      : undefined
+                  }
                   onClick={() => setMostrarModalCierre(true)}
                   style={{ width: '100%' }}
                 >

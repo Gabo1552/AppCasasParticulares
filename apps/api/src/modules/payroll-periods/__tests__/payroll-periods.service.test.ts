@@ -27,6 +27,7 @@ describe('PayrollPeriodsService', () => {
       create: ReturnType<typeof vi.fn>;
     };
     $transaction: ReturnType<typeof vi.fn>;
+    $executeRawUnsafe: ReturnType<typeof vi.fn>;
   };
   let audit: { record: ReturnType<typeof vi.fn> };
   let outbox: { enqueueEmail: ReturnType<typeof vi.fn> };
@@ -96,6 +97,7 @@ describe('PayrollPeriodsService', () => {
         create: vi.fn(),
       },
       $transaction: vi.fn(async (callback: (tx: unknown) => Promise<unknown>) => callback(prisma)),
+      $executeRawUnsafe: vi.fn().mockResolvedValue(undefined),
     };
 
     audit = {
@@ -193,7 +195,7 @@ describe('PayrollPeriodsService', () => {
 
       prisma.payrollPeriod.findUnique.mockResolvedValue(existingPeriod);
       prisma.workDay.findMany.mockResolvedValue([
-        { status: WorkDayStatus.APPROVED, approvedMinutes: 480 },
+        { status: WorkDayStatus.APPROVED, approvedMinutes: 480, corrections: [] },
       ]);
 
       const result = await service.getOrCreate(workerActor, 'rel-1', { year: 2026, month: 8 });
@@ -204,19 +206,16 @@ describe('PayrollPeriodsService', () => {
       expect(prisma.payrollPeriod.create).not.toHaveBeenCalled();
     });
 
-    it('devuelve 404 NotFound si un usuario ajeno intenta acceder', async () => {
+    it('recupera el período concurrentemente creado ante colisión P2002', async () => {
       prisma.employmentRelationship.findUnique.mockResolvedValue(activeRelationship);
+      prisma.payrollPeriod.findUnique.mockResolvedValue(null);
 
-      await expect(
-        service.getOrCreate(strangerActor, 'rel-1', { year: 2026, month: 8 }),
-      ).rejects.toThrow(NotFoundError);
-    });
-  });
+      const p2002Error = new Error('Unique constraint failed') as Error & { code: string };
+      p2002Error.code = 'P2002';
+      prisma.payrollPeriod.create.mockRejectedValue(p2002Error);
 
-  describe('closeAttendance', () => {
-    it('la familia cierra la asistencia exitosamente y genera snapshot inmutable', async () => {
-      const openPeriod = {
-        id: 'per-1',
+      const recoveredPeriod = {
+        id: 'per-concurrent',
         employmentRelationshipId: 'rel-1',
         year: 2026,
         month: 8,
@@ -235,76 +234,126 @@ describe('PayrollPeriodsService', () => {
         attendanceSnapshot: null,
       };
 
+      prisma.payrollPeriod.findUniqueOrThrow.mockResolvedValue(recoveredPeriod);
+      prisma.workDay.findMany.mockResolvedValue([]);
+
+      const result = await service.getOrCreate(employerActor, 'rel-1', { year: 2026, month: 8 });
+
+      expect(result.id).toBe('per-concurrent');
+      expect(prisma.payrollPeriod.findUniqueOrThrow).toHaveBeenCalled();
+    });
+
+    it('relanza errores de base de datos ajenos a P2002 sin enmascararlos', async () => {
+      prisma.employmentRelationship.findUnique.mockResolvedValue(activeRelationship);
+      prisma.payrollPeriod.findUnique.mockResolvedValue(null);
+
+      const dbConnectionError = new Error('Database connection lost') as Error & { code: string };
+      dbConnectionError.code = 'P1001';
+      prisma.payrollPeriod.create.mockRejectedValue(dbConnectionError);
+
+      await expect(
+        service.getOrCreate(employerActor, 'rel-1', { year: 2026, month: 8 }),
+      ).rejects.toThrow('Database connection lost');
+    });
+
+    it('devuelve 404 NotFound si un usuario ajeno intenta acceder', async () => {
+      prisma.employmentRelationship.findUnique.mockResolvedValue(activeRelationship);
+
+      await expect(
+        service.getOrCreate(strangerActor, 'rel-1', { year: 2026, month: 8 }),
+      ).rejects.toThrow(NotFoundError);
+    });
+  });
+
+  describe('closeAttendance', () => {
+    // Usamos Mayo 2025 (mes pasado finalizado) para validar el flujo completo de cierre
+    const pastYear = 2025;
+    const pastMonth = 5;
+
+    it('la familia cierra la asistencia exitosamente y genera snapshot inmutable', async () => {
+      const openPeriod = {
+        id: 'per-1',
+        employmentRelationshipId: 'rel-1',
+        year: pastYear,
+        month: pastMonth,
+        periodType: PeriodType.MONTHLY,
+        status: PayrollPeriodStatus.OPEN,
+        fromDate: new Date('2025-05-01T00:00:00.000Z'),
+        toDate: new Date('2025-05-31T00:00:00.000Z'),
+        attendanceApprovedAt: null,
+        attendanceApprovedByUserId: null,
+        closedAt: null,
+        closedByUserId: null,
+        version: 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        relationship: activeRelationship,
+        attendanceSnapshot: null,
+      };
+
       prisma.payrollPeriod.findUnique.mockResolvedValue(openPeriod);
 
       const approvedWorkDays = [
         {
           id: 'wd-1',
-          date: new Date('2026-08-03T00:00:00.000Z'),
+          date: new Date('2025-05-05T00:00:00.000Z'),
           status: WorkDayStatus.APPROVED,
           approvedMinutes: 480,
-          approvedAt: new Date('2026-08-03T18:00:00.000Z'),
+          approvedAt: new Date('2025-05-05T18:00:00.000Z'),
           version: 2,
           timeEntries: [
             {
               kind: 'CLOCK_IN',
               status: 'APPROVED',
-              declaredAt: new Date('2026-08-03T09:00:00.000Z'),
+              declaredAt: new Date('2025-05-05T09:00:00.000Z'),
             },
             {
               kind: 'CLOCK_OUT',
               status: 'APPROVED',
-              declaredAt: new Date('2026-08-03T17:00:00.000Z'),
+              declaredAt: new Date('2025-05-05T17:00:00.000Z'),
             },
           ],
           corrections: [],
         },
         {
           id: 'wd-2',
-          date: new Date('2026-08-05T00:00:00.000Z'),
+          date: new Date('2025-05-07T00:00:00.000Z'),
           status: WorkDayStatus.APPROVED,
           approvedMinutes: 480,
-          approvedAt: new Date('2026-08-05T18:00:00.000Z'),
+          approvedAt: new Date('2025-05-07T18:00:00.000Z'),
           version: 2,
           timeEntries: [
             {
               kind: 'CLOCK_IN',
               status: 'APPROVED',
-              declaredAt: new Date('2026-08-05T09:00:00.000Z'),
+              declaredAt: new Date('2025-05-07T09:00:00.000Z'),
             },
             {
               kind: 'CLOCK_OUT',
               status: 'APPROVED',
-              declaredAt: new Date('2026-08-05T17:00:00.000Z'),
+              declaredAt: new Date('2025-05-07T17:00:00.000Z'),
             },
           ],
           corrections: [],
         },
       ];
 
+      prisma.payrollPeriod.findUniqueOrThrow.mockResolvedValue(openPeriod);
       prisma.workDay.findMany.mockResolvedValue(approvedWorkDays);
       prisma.payrollPeriod.updateMany.mockResolvedValue({ count: 1 });
 
-      const closedPeriod = {
-        ...openPeriod,
-        status: PayrollPeriodStatus.READY_FOR_CALCULATION,
-        attendanceApprovedAt: new Date(),
-        attendanceApprovedByUserId: 'user-employer',
-        version: 1,
-        attendanceSnapshot: {
-          id: 'snap-1',
-          payrollPeriodId: 'per-1',
-          schemaVersion: '1.0',
-          approvedDays: 2,
-          approvedMinutes: 960,
-          hash: 'abc123sha256',
-          createdAt: new Date(),
-          createdByUserId: 'user-employer',
-          payload: {},
-        },
+      const createdSnapshot = {
+        id: 'snap-1',
+        payrollPeriodId: 'per-1',
+        schemaVersion: '1.0',
+        approvedDays: 2,
+        approvedMinutes: 960,
+        hash: 'abc123sha256',
+        createdAt: new Date(),
+        createdByUserId: 'user-employer',
+        payload: {},
       };
-
-      prisma.payrollPeriod.findUniqueOrThrow.mockResolvedValue(closedPeriod);
+      prisma.periodAttendanceSnapshot.create.mockResolvedValue(createdSnapshot);
 
       const result = await service.closeAttendance(employerActor, 'per-1', { expectedVersion: 0 });
 
@@ -329,12 +378,43 @@ describe('PayrollPeriodsService', () => {
       expect(outbox.enqueueEmail).toHaveBeenCalled();
     });
 
+    it('bloquea el cierre si el mes actual aún no ha finalizado (ATTENDANCE_PERIOD_NOT_FINISHED)', async () => {
+      const now = new Date();
+      const currentYear = now.getFullYear();
+      const currentMonth = now.getMonth() + 1;
+
+      const unfinishedPeriod = {
+        id: 'per-current',
+        employmentRelationshipId: 'rel-1',
+        year: currentYear,
+        month: currentMonth,
+        periodType: PeriodType.MONTHLY,
+        status: PayrollPeriodStatus.OPEN,
+        fromDate: new Date(
+          `${currentYear}-${String(currentMonth).padStart(2, '0')}-01T00:00:00.000Z`,
+        ),
+        toDate: new Date(
+          `${currentYear}-${String(currentMonth).padStart(2, '0')}-28T00:00:00.000Z`,
+        ),
+        version: 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        relationship: activeRelationship,
+      };
+
+      prisma.payrollPeriod.findUnique.mockResolvedValue(unfinishedPeriod);
+
+      await expect(
+        service.closeAttendance(employerActor, 'per-current', { expectedVersion: 0 }),
+      ).rejects.toThrow(UnprocessableError);
+    });
+
     it('bloquea el cierre si existen jornadas PENDING_APPROVAL', async () => {
       const openPeriod = {
         id: 'per-1',
         employmentRelationshipId: 'rel-1',
-        year: 2026,
-        month: 8,
+        year: pastYear,
+        month: pastMonth,
         status: PayrollPeriodStatus.OPEN,
         version: 0,
         createdAt: new Date(),
@@ -343,11 +423,12 @@ describe('PayrollPeriodsService', () => {
       };
 
       prisma.payrollPeriod.findUnique.mockResolvedValue(openPeriod);
+      prisma.payrollPeriod.findUniqueOrThrow.mockResolvedValue(openPeriod);
 
       prisma.workDay.findMany.mockResolvedValue([
         {
           id: 'wd-1',
-          date: new Date('2026-08-03T00:00:00.000Z'),
+          date: new Date('2025-05-03T00:00:00.000Z'),
           status: WorkDayStatus.PENDING_APPROVAL,
           approvedMinutes: null,
           timeEntries: [],
@@ -364,8 +445,8 @@ describe('PayrollPeriodsService', () => {
       const openPeriod = {
         id: 'per-1',
         employmentRelationshipId: 'rel-1',
-        year: 2026,
-        month: 8,
+        year: pastYear,
+        month: pastMonth,
         status: PayrollPeriodStatus.OPEN,
         version: 0,
         createdAt: new Date(),
@@ -374,11 +455,12 @@ describe('PayrollPeriodsService', () => {
       };
 
       prisma.payrollPeriod.findUnique.mockResolvedValue(openPeriod);
+      prisma.payrollPeriod.findUniqueOrThrow.mockResolvedValue(openPeriod);
 
       prisma.workDay.findMany.mockResolvedValue([
         {
           id: 'wd-1',
-          date: new Date('2026-08-03T00:00:00.000Z'),
+          date: new Date('2025-05-03T00:00:00.000Z'),
           status: WorkDayStatus.DISPUTED,
           approvedMinutes: null,
           timeEntries: [],
@@ -395,8 +477,8 @@ describe('PayrollPeriodsService', () => {
       const openPeriod = {
         id: 'per-1',
         employmentRelationshipId: 'rel-1',
-        year: 2026,
-        month: 8,
+        year: pastYear,
+        month: pastMonth,
         status: PayrollPeriodStatus.OPEN,
         version: 0,
         createdAt: new Date(),
@@ -405,6 +487,7 @@ describe('PayrollPeriodsService', () => {
       };
 
       prisma.payrollPeriod.findUnique.mockResolvedValue(openPeriod);
+      prisma.payrollPeriod.findUniqueOrThrow.mockResolvedValue(openPeriod);
       prisma.workDay.findMany.mockResolvedValue([]);
 
       await expect(
@@ -416,8 +499,8 @@ describe('PayrollPeriodsService', () => {
       const openPeriod = {
         id: 'per-1',
         employmentRelationshipId: 'rel-1',
-        year: 2026,
-        month: 8,
+        year: pastYear,
+        month: pastMonth,
         status: PayrollPeriodStatus.OPEN,
         version: 2,
         relationship: activeRelationship,
@@ -434,8 +517,8 @@ describe('PayrollPeriodsService', () => {
       const openPeriod = {
         id: 'per-1',
         employmentRelationshipId: 'rel-1',
-        year: 2026,
-        month: 8,
+        year: pastYear,
+        month: pastMonth,
         status: PayrollPeriodStatus.OPEN,
         version: 0,
         relationship: activeRelationship,
@@ -452,8 +535,8 @@ describe('PayrollPeriodsService', () => {
       const openPeriod = {
         id: 'per-1',
         employmentRelationshipId: 'rel-1',
-        year: 2026,
-        month: 8,
+        year: pastYear,
+        month: pastMonth,
         status: PayrollPeriodStatus.OPEN,
         version: 0,
         relationship: activeRelationship,
@@ -464,6 +547,53 @@ describe('PayrollPeriodsService', () => {
       await expect(
         service.closeAttendance(strangerActor, 'per-1', { expectedVersion: 0 }),
       ).rejects.toThrow(NotFoundError);
+    });
+  });
+
+  describe('Read model de período cerrado', () => {
+    it('sirve approvedDays y approvedMinutes exclusivamente desde el snapshot inmutable', async () => {
+      const closedPeriodWithSnapshot = {
+        id: 'per-closed',
+        employmentRelationshipId: 'rel-1',
+        year: 2025,
+        month: 5,
+        periodType: PeriodType.MONTHLY,
+        status: PayrollPeriodStatus.READY_FOR_CALCULATION,
+        fromDate: new Date('2025-05-01T00:00:00.000Z'),
+        toDate: new Date('2025-05-31T00:00:00.000Z'),
+        attendanceApprovedAt: new Date('2025-06-01T10:00:00.000Z'),
+        attendanceApprovedByUserId: 'user-employer',
+        closedAt: null,
+        closedByUserId: null,
+        version: 1,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        relationship: activeRelationship,
+        attendanceSnapshot: {
+          id: 'snap-1',
+          payrollPeriodId: 'per-closed',
+          schemaVersion: '1.0',
+          approvedDays: 15,
+          approvedMinutes: 7200,
+          hash: 'hash-inmutable-sha256',
+          createdAt: new Date('2025-06-01T10:00:00.000Z'),
+          createdByUserId: 'user-employer',
+          payload: { schemaVersion: '1.0' },
+        },
+      };
+
+      prisma.payrollPeriod.findUnique.mockResolvedValue(closedPeriodWithSnapshot);
+
+      const view = await service.getById(employerActor, 'per-closed');
+
+      expect(view.attendance.approvedDays).toBe(15);
+      expect(view.attendance.approvedMinutes).toBe(7200);
+      expect(view.attendance.openDays).toBe(0);
+      expect(view.attendance.pendingApprovalDays).toBe(0);
+      expect(view.attendance.disputedDays).toBe(0);
+      expect(view.snapshot?.hash).toBe('hash-inmutable-sha256');
+      // No debe consultar tablas vivas de workDay al estar cerrado
+      expect(prisma.workDay.findMany).not.toHaveBeenCalled();
     });
   });
 });

@@ -4,6 +4,7 @@ import {
   ClockInMethod,
   EmploymentRelationshipStatus,
   PayrollPeriodStatus,
+  PeriodType,
   PlatformRole,
   TimeEntryKind,
   TimeEntryStatus,
@@ -233,6 +234,41 @@ export class TimeTrackingService {
               include: FULL_WORKDAY_INCLUDE,
             });
           }
+        }
+
+        const localYear = localDate.getUTCFullYear();
+        const localMonth = localDate.getUTCMonth() + 1;
+
+        if (
+          typeof (tx as unknown as { $executeRawUnsafe?: (sql: string) => Promise<unknown> })
+            .$executeRawUnsafe === 'function'
+        ) {
+          await (
+            tx as unknown as { $executeRawUnsafe: (sql: string) => Promise<unknown> }
+          ).$executeRawUnsafe(
+            `SELECT pg_advisory_xact_lock(hashtext('attendance_lock:${relationshipId}:${localYear}:${localMonth}'))`,
+          );
+        }
+
+        // Invariante 0: No se pueden registrar jornadas en un período mensual con asistencia cerrada
+        const closedPeriod = await tx.payrollPeriod.findFirst({
+          where: {
+            employmentRelationshipId: relationshipId,
+            year: localYear,
+            month: localMonth,
+            periodType: PeriodType.MONTHLY,
+            OR: [
+              { status: PayrollPeriodStatus.READY_FOR_CALCULATION },
+              { attendanceApprovedAt: { not: null } },
+            ],
+          },
+        });
+
+        if (closedPeriod !== null) {
+          throw new UnprocessableError(
+            'PERIOD_ATTENDANCE_CLOSED',
+            'No se pueden registrar jornadas en un período mensual con asistencia cerrada.',
+          );
         }
 
         // Invariante 1: No puede haber ninguna jornada OPEN ya existente en esta relación
@@ -487,6 +523,40 @@ export class TimeTrackingService {
 
     try {
       const resultWorkDay = await this.prisma.$transaction(async (tx: PrismaTx) => {
+        const workDayYear = workDay.date.getUTCFullYear();
+        const workDayMonth = workDay.date.getUTCMonth() + 1;
+
+        if (
+          typeof (tx as unknown as { $executeRawUnsafe?: (sql: string) => Promise<unknown> })
+            .$executeRawUnsafe === 'function'
+        ) {
+          await (
+            tx as unknown as { $executeRawUnsafe: (sql: string) => Promise<unknown> }
+          ).$executeRawUnsafe(
+            `SELECT pg_advisory_xact_lock(hashtext('attendance_lock:${workDay.employmentRelationshipId}:${workDayYear}:${workDayMonth}'))`,
+          );
+        }
+
+        const closedPeriod = await tx.payrollPeriod.findFirst({
+          where: {
+            employmentRelationshipId: workDay.employmentRelationshipId,
+            year: workDayYear,
+            month: workDayMonth,
+            periodType: PeriodType.MONTHLY,
+            OR: [
+              { status: PayrollPeriodStatus.READY_FOR_CALCULATION },
+              { attendanceApprovedAt: { not: null } },
+            ],
+          },
+        });
+
+        if (closedPeriod !== null || isPeriodAttendanceClosed(workDay.payrollPeriod)) {
+          throw new UnprocessableError(
+            'PERIOD_ATTENDANCE_CLOSED',
+            'No se pueden registrar fichajes en jornadas pertenecientes a un período mensual con asistencia cerrada.',
+          );
+        }
+
         // Idempotencia dentro de la transacción
         if (clientIdempotencyKey) {
           const existingEntryInTx = await tx.timeEntry.findUnique({
@@ -798,6 +868,40 @@ export class TimeTrackingService {
     );
 
     const resultWorkDay = await this.prisma.$transaction(async (tx: PrismaTx) => {
+      const workDayYear = workDay.date.getUTCFullYear();
+      const workDayMonth = workDay.date.getUTCMonth() + 1;
+
+      if (
+        typeof (tx as unknown as { $executeRawUnsafe?: (sql: string) => Promise<unknown> })
+          .$executeRawUnsafe === 'function'
+      ) {
+        await (
+          tx as unknown as { $executeRawUnsafe: (sql: string) => Promise<unknown> }
+        ).$executeRawUnsafe(
+          `SELECT pg_advisory_xact_lock(hashtext('attendance_lock:${workDay.employmentRelationshipId}:${workDayYear}:${workDayMonth}'))`,
+        );
+      }
+
+      const closedPeriod = await tx.payrollPeriod.findFirst({
+        where: {
+          employmentRelationshipId: workDay.employmentRelationshipId,
+          year: workDayYear,
+          month: workDayMonth,
+          periodType: PeriodType.MONTHLY,
+          OR: [
+            { status: PayrollPeriodStatus.READY_FOR_CALCULATION },
+            { attendanceApprovedAt: { not: null } },
+          ],
+        },
+      });
+
+      if (closedPeriod !== null || isPeriodAttendanceClosed(workDay.payrollPeriod)) {
+        throw new UnprocessableError(
+          'PERIOD_ATTENDANCE_CLOSED',
+          'No se pueden aprobar jornadas pertenecientes a un período mensual con asistencia cerrada.',
+        );
+      }
+
       const updateResult = await tx.workDay.updateMany({
         where: {
           id: workDay.id,
