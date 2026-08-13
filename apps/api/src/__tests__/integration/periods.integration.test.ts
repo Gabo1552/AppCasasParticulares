@@ -509,6 +509,65 @@ describe('Pruebas de Integración PostgreSQL — Período Mensual y Cierre de As
         ),
       ).rejects.toThrow(UnprocessableError);
     });
+
+    it('rechaza un nuevo clockIn (jornada nueva) en un mes ya cerrado', async () => {
+      const fixture = await createActiveRelationshipFixture();
+
+      // clockIn usa new Date() → la fecha local del domicilio → año/mes actual.
+      // Para simular que ese mes ya está cerrado, insertamos directamente un
+      // PayrollPeriod con READY_FOR_CALCULATION para el mes en curso (la capa de
+      // servicio no lo permitiría por la política temporal, pero el guard de
+      // clockIn se basa puramente en que exista el registro).
+      const now = new Date();
+      const tz = 'America/Argentina/Buenos_Aires';
+      const localDateStr = now.toLocaleDateString('en-CA', { timeZone: tz });
+      const [yearStr, monthStr] = localDateStr.split('-');
+      const currentYear = Number(yearStr);
+      const currentMonth = Number(monthStr);
+
+      const fromDate = new Date(
+        `${currentYear}-${String(currentMonth).padStart(2, '0')}-01T00:00:00.000Z`,
+      );
+      const lastDay = new Date(currentYear, currentMonth, 0).getDate();
+      const toDate = new Date(
+        `${currentYear}-${String(currentMonth).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}T00:00:00.000Z`,
+      );
+
+      await prismaEmployer1.payrollPeriod.create({
+        data: {
+          employmentRelationshipId: fixture.relationship.id,
+          year: currentYear,
+          month: currentMonth,
+          periodType: 'MONTHLY',
+          status: PayrollPeriodStatus.READY_FOR_CALCULATION,
+          fromDate,
+          toDate,
+          attendanceApprovedAt: new Date(),
+          attendanceApprovedByUserId: fixture.employerActor.userId,
+          version: 1,
+        },
+      });
+
+      // La trabajadora intenta fichar entrada → debe rechazarse con PERIOD_ATTENDANCE_CLOSED
+      await expect(
+        timeTrackingWorker.clockIn(fixture.workerActor, fixture.relationship.id, {
+          method: 'BUTTON',
+          clientIdempotencyKey: randomUUID(),
+        }),
+      ).rejects.toThrow(UnprocessableError);
+
+      // Verificar que el error es específicamente PERIOD_ATTENDANCE_CLOSED
+      try {
+        await timeTrackingWorker.clockIn(fixture.workerActor, fixture.relationship.id, {
+          method: 'BUTTON',
+          clientIdempotencyKey: randomUUID(),
+        });
+        expect.unreachable('Debió lanzar UnprocessableError');
+      } catch (error) {
+        expect(error).toBeInstanceOf(UnprocessableError);
+        expect((error as UnprocessableError).message).toContain('PERIOD_ATTENDANCE_CLOSED');
+      }
+    });
   });
 
   describe('7. Invariantes de Bloqueo Pre-Cierre (Readiness & Empty checks)', () => {
