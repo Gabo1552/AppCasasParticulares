@@ -145,19 +145,29 @@ export async function cargarHorario(page: Page): Promise<void> {
   await expect(page.getByText('Guardamos el horario semanal.')).toBeVisible();
 }
 
-/** Inyecta una jornada aprobada histórica a través de test-support */
+/**
+ * Inyecta una jornada aprobada histórica a través de test-support.
+ *
+ * Usa `fetch` nativo en vez de la `APIRequestContext` de Playwright para que no
+ * se hereden las cookies de sesión del navegador — la cookie `casas_csrf`
+ * dispararía el guard CSRF al enviar un POST sin la cabecera correspondiente.
+ */
 export async function crearJornadaAprobadaHistorica(
-  request: APIRequestContext,
+  _request: APIRequestContext,
   relationshipId: string,
   dateStr: string,
   minutes: number = 480,
 ): Promise<string> {
-  const respuesta = await request.post(`${API_URL}/api/v1/test-support/seed-approved-workday`, {
-    data: { relationshipId, date: dateStr, minutes },
-    headers: { 'x-test-support-secret': secret },
+  const respuesta = await fetch(`${API_URL}/api/v1/test-support/seed-approved-workday`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'x-test-support-secret': secret,
+    },
+    body: JSON.stringify({ relationshipId, date: dateStr, minutes }),
   });
   expect(
-    respuesta.ok(),
+    respuesta.ok,
     `No se pudo crear la jornada aprobada histórica: ${await respuesta.text()}`,
   ).toBeTruthy();
   return ((await respuesta.json()) as { workDayId: string }).workDayId;
