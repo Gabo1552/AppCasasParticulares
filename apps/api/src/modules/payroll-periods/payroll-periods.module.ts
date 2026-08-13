@@ -1,20 +1,29 @@
 import { Module } from '@nestjs/common';
+import { PrismaService } from '../../common/prisma/prisma.service';
+import { AuditService } from '../../common/audit/audit.service';
+import { FieldEncryptionService } from '../../common/crypto/field-encryption.service';
+import { APP_CONFIG, loadAppConfig, type AppConfig } from '../../config/app-config';
+import { OutboxNotificationService } from '../notifications/outbox-notification.service';
+import { PayrollPeriodsController } from './payroll-periods.controller';
+import { PayrollPeriodsService } from './payroll-periods.service';
 
 /**
  * Módulo PayrollPeriods.
  *
- * Ciclo del período mensual y sus transiciones de estado.
- *
- * Requerimientos que cubre: LIQ-01, LIQ-12.
- *
- * Estado: declarado en la Etapa 2 (base técnica). Los casos de uso se implementan
- * en la Etapa 3 (recorrido vertical), según docs/implementation-roadmap.md.
- * Anatomía esperada del módulo: docs/architecture.md §5.
+ * Ciclo del período mensual y cierre de asistencia inmutable con snapshot.
+ * Requerimientos: E3.9, LIQ-01, LIQ-12.
  */
 @Module({
   imports: [],
-  controllers: [],
-  providers: [],
-  exports: [],
+  controllers: [PayrollPeriodsController],
+  providers: [
+    { provide: APP_CONFIG, useFactory: (): AppConfig => loadAppConfig() },
+    PrismaService,
+    AuditService,
+    FieldEncryptionService,
+    OutboxNotificationService,
+    PayrollPeriodsService,
+  ],
+  exports: [PayrollPeriodsService],
 })
 export class PayrollPeriodsModule {}

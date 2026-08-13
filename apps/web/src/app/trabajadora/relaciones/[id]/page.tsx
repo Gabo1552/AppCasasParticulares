@@ -8,6 +8,7 @@ import { PantallaProtegida } from '@/components/pantalla-protegida';
 import { Campo, Cargando, Error, Exito } from '@/components/ui';
 import { ResumenRelacion } from '@/components/resumen-relacion';
 import { FichajeTrabajadora } from '@/components/fichaje-trabajadora';
+import { PeriodosAsistencia } from '@/components/periodos-asistencia';
 import type { Relationship } from '@/lib/types';
 
 /**
@@ -118,6 +119,7 @@ function Contenido(): ReactNode {
       {relacion.status === 'ACTIVE' ? (
         <>
           <FichajeTrabajadora relacion={relacion} />
+          <PeriodosAsistencia relacion={relacion} rol="WORKER" />
           <details className="tarjeta">
             <summary>Ver condiciones de trabajo acordadas</summary>
             <div style={{ marginTop: '1rem' }}>

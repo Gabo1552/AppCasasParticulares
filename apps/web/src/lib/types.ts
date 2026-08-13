@@ -175,3 +175,59 @@ export interface AttendanceRecord {
   createdAt: string;
   updatedAt: string;
 }
+
+export type PayrollPeriodStatus =
+  | 'OPEN'
+  | 'PENDING_ATTENDANCE_APPROVAL'
+  | 'READY_FOR_CALCULATION'
+  | 'CALCULATED'
+  | 'PENDING_PROFESSIONAL_REVIEW'
+  | 'OBSERVED'
+  | 'APPROVED'
+  | 'PENDING_ARCA'
+  | 'ARCA_DOCUMENT_IMPORTED'
+  | 'PENDING_PAYMENT'
+  | 'PAID'
+  | 'RECONCILED'
+  | 'RECTIFICATION_REQUIRED'
+  | 'CLOSED';
+
+export interface MonthlyAttendanceSummary {
+  approvedDays: number;
+  approvedMinutes: number;
+  openDays: number;
+  pendingApprovalDays: number;
+  disputedDays: number;
+  totalAttendanceDays: number;
+}
+
+export interface PeriodAttendanceSnapshotView {
+  id: string;
+  payrollPeriodId: string;
+  schemaVersion: string;
+  approvedDays: number;
+  approvedMinutes: number;
+  hash: string;
+  createdAt: string;
+  createdByUserId?: string | null;
+}
+
+export interface MonthlyPeriod {
+  id: string;
+  relationshipId: string;
+  year: number;
+  month: number;
+  periodType: 'MONTHLY' | 'EXTRAORDINARY' | 'FINAL';
+  status: PayrollPeriodStatus;
+  fromDate: string;
+  toDate: string;
+  attendanceApprovedAt: string | null;
+  attendanceApprovedByUserId: string | null;
+  closedAt: string | null;
+  closedByUserId: string | null;
+  attendance: MonthlyAttendanceSummary;
+  snapshot: PeriodAttendanceSnapshotView | null;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+}

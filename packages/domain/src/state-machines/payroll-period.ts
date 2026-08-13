@@ -68,6 +68,16 @@ const transitions: readonly TransitionDefinition<PayrollPeriodStatus>[] = [
     description: 'Se cierra la carga de asistencia del período',
   },
   {
+    from: S.OPEN,
+    to: S.READY_FOR_CALCULATION,
+    allowedRoles: [PlatformRole.FAMILY_EMPLOYER],
+    description: 'La familia aprueba y cierra la asistencia del período (FIC-07)',
+    guard: (context) =>
+      payloadOf(context).allAttendanceApproved === true
+        ? true
+        : 'quedan jornadas sin aprobar, objetadas o con corrección pendiente (FIC-07, FIC-08)',
+  },
+  {
     from: S.PENDING_ATTENDANCE_APPROVAL,
     to: S.READY_FOR_CALCULATION,
     allowedRoles: [PlatformRole.FAMILY_EMPLOYER],

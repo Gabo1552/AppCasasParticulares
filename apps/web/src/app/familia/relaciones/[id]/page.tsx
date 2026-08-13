@@ -20,6 +20,7 @@ import {
 } from '@/components/formulario-horario';
 import { ResumenRelacion, tonoRelacion } from '@/components/resumen-relacion';
 import { JornadasFamilia } from '@/components/jornadas-familia';
+import { PeriodosAsistencia } from '@/components/periodos-asistencia';
 import { etiquetaRelacion } from '@/lib/format';
 import type { Relationship } from '@/lib/types';
 
@@ -168,6 +169,7 @@ function Contenido(): ReactNode {
       <Exito mensaje={aviso} />
       {!editable && relacion.status === 'ACTIVE' && (
         <>
+          <PeriodosAsistencia relacion={relacion} rol="FAMILY_EMPLOYER" />
           <JornadasFamilia relacion={relacion} />
           <details className="tarjeta">
             <summary>Ver condiciones y horario configurados</summary>

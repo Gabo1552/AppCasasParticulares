@@ -994,10 +994,30 @@ model PayrollPeriod {
   arcaDocuments            ARCADocument[]
   payments                 Payment[]
   reconciliations          Reconciliation[]
+  attendanceSnapshot       PeriodAttendanceSnapshot?
 
   @@unique([employmentRelationshipId, year, month, periodType])
   @@index([status])
   @@map("payroll_period")
+}
+
+/// Snapshot inmutable de la asistencia aprobada del período (E3.9).
+/// Guarda la evidencia histórica inmutable con huella SHA-256 para alimentar la liquidación.
+model PeriodAttendanceSnapshot {
+  id                 String                 @id @default(uuid()) @db.Uuid
+  payrollPeriodId    String                 @unique @db.Uuid
+  schemaVersion      String                 @default("1.0")
+  approvedDays       Int
+  approvedMinutes    Int
+  payload            Json
+  hash               String
+  createdAt          DateTime               @default(now())
+  createdByUserId    String?                @db.Uuid
+
+  payrollPeriod      PayrollPeriod          @relation(fields: [payrollPeriodId], references: [id], onDelete: Restrict)
+
+  @@index([hash])
+  @@map("period_attendance_snapshot")
 }
 
 /// Versión de liquidación. Una rectificativa crea la versión n+1 y referencia a la

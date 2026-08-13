@@ -136,3 +136,62 @@ export function tonoAsistencia(status: string): 'activa' | 'espera' | 'cerrada' 
       return 'cerrada';
   }
 }
+
+const ETIQUETAS_PERIODO: Record<string, string> = {
+  OPEN: 'Abierto',
+  PENDING_ATTENDANCE_APPROVAL: 'En revisión de asistencia',
+  READY_FOR_CALCULATION: 'Asistencia cerrada',
+  CALCULATED: 'Preliquidado',
+  PENDING_PROFESSIONAL_REVIEW: 'En revisión profesional',
+  OBSERVED: 'Observado',
+  APPROVED: 'Aprobado',
+  PENDING_ARCA: 'Pendiente ARCA',
+  ARCA_DOCUMENT_IMPORTED: 'Recibo oficial emitido',
+  PENDING_PAYMENT: 'Pendiente de pago',
+  PAID: 'Pagado',
+  RECONCILED: 'Conciliado',
+  RECTIFICATION_REQUIRED: 'Rectificativa requerida',
+  CLOSED: 'Cerrado',
+};
+
+export function etiquetaPeriodo(status: string): string {
+  return ETIQUETAS_PERIODO[status] ?? status;
+}
+
+export function tonoPeriodo(status: string): 'activa' | 'espera' | 'cerrada' {
+  switch (status) {
+    case 'READY_FOR_CALCULATION':
+    case 'CALCULATED':
+    case 'APPROVED':
+    case 'PAID':
+    case 'RECONCILED':
+      return 'activa';
+    case 'OPEN':
+    case 'PENDING_ATTENDANCE_APPROVAL':
+    case 'PENDING_PROFESSIONAL_REVIEW':
+    case 'PENDING_ARCA':
+    case 'PENDING_PAYMENT':
+      return 'espera';
+    default:
+      return 'cerrada';
+  }
+}
+
+const MESES = [
+  'Enero',
+  'Febrero',
+  'Marzo',
+  'Abril',
+  'Mayo',
+  'Junio',
+  'Julio',
+  'Agosto',
+  'Septiembre',
+  'Octubre',
+  'Noviembre',
+  'Diciembre',
+];
+
+export function nombreMes(mes: number): string {
+  return MESES[mes - 1] ?? `Mes ${mes}`;
+}

@@ -3,6 +3,7 @@ import { Injectable } from '@nestjs/common';
 import {
   AttendanceCorrectionStatus,
   ClockInMethod,
+  PayrollPeriodStatus,
   PlatformRole,
   TimeEntryKind,
   TimeEntryStatus,
@@ -37,6 +38,7 @@ const FULL_WORKDAY_INCLUDE = {
       household: { select: { id: true, label: true, city: true, timezone: true } },
     },
   },
+  payrollPeriod: true,
   timeEntries: {
     orderBy: { declaredAt: 'asc' as const },
   },
@@ -44,6 +46,17 @@ const FULL_WORKDAY_INCLUDE = {
     orderBy: { createdAt: 'desc' as const },
   },
 } as const;
+
+function isPeriodAttendanceClosed(
+  payrollPeriod:
+    { status: PayrollPeriodStatus; attendanceApprovedAt: Date | null } | null | undefined,
+): boolean {
+  if (!payrollPeriod) return false;
+  return (
+    payrollPeriod.status === PayrollPeriodStatus.READY_FOR_CALCULATION ||
+    payrollPeriod.attendanceApprovedAt != null
+  );
+}
 
 @Injectable()
 export class AttendanceCorrectionsService {
@@ -80,6 +93,13 @@ export class AttendanceCorrectionsService {
     if (workDay.version !== input.expectedVersion) {
       throw new ResourceVersionConflictError(
         'La jornada cambió mientras la estabas revisando. Actualizamos la información para que puedas revisarla nuevamente.',
+      );
+    }
+
+    if (isPeriodAttendanceClosed(workDay.payrollPeriod)) {
+      throw new UnprocessableError(
+        'PERIOD_ATTENDANCE_CLOSED',
+        'No se pueden solicitar correcciones en jornadas pertenecientes a un período mensual con asistencia cerrada.',
       );
     }
 
@@ -212,6 +232,13 @@ export class AttendanceCorrectionsService {
     if (workDay.version !== expectedVersion) {
       throw new ResourceVersionConflictError(
         'La jornada cambió mientras la estabas revisando. Actualizamos la información para que puedas revisarla nuevamente.',
+      );
+    }
+
+    if (isPeriodAttendanceClosed(workDay.payrollPeriod)) {
+      throw new UnprocessableError(
+        'PERIOD_ATTENDANCE_CLOSED',
+        'No se pueden procesar correcciones en jornadas pertenecientes a un período mensual con asistencia cerrada.',
       );
     }
 
@@ -402,6 +429,13 @@ export class AttendanceCorrectionsService {
     if (workDay.version !== input.expectedVersion) {
       throw new ResourceVersionConflictError(
         'La jornada cambió mientras la estabas revisando. Actualizamos la información para que puedas revisarla nuevamente.',
+      );
+    }
+
+    if (isPeriodAttendanceClosed(workDay.payrollPeriod)) {
+      throw new UnprocessableError(
+        'PERIOD_ATTENDANCE_CLOSED',
+        'No se pueden procesar correcciones en jornadas pertenecientes a un período mensual con asistencia cerrada.',
       );
     }
 
