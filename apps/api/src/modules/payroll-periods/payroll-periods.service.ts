@@ -338,7 +338,7 @@ export class PayrollPeriodsService {
     }
 
     for (const day of approvedWorkDays) {
-      if (day.approvedMinutes === null || day.approvedMinutes <= 0) {
+      if (day.approvedMinutes === null || day.approvedMinutes < 0) {
         throw new UnprocessableError(
           'PERIOD_DATA_INTEGRITY_ERROR',
           'Se detectó una jornada aprobada sin minutos computados válidos. Verificá los registros antes de cerrar.',
