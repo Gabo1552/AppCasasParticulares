@@ -565,7 +565,7 @@ describe('Pruebas de Integración PostgreSQL — Período Mensual y Cierre de As
         expect.unreachable('Debió lanzar UnprocessableError');
       } catch (error) {
         expect(error).toBeInstanceOf(UnprocessableError);
-        expect((error as UnprocessableError).message).toContain('PERIOD_ATTENDANCE_CLOSED');
+        expect((error as UnprocessableError).code).toBe('PERIOD_ATTENDANCE_CLOSED');
       }
     });
   });
