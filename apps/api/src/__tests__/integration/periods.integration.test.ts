@@ -276,7 +276,7 @@ describe('Pruebas de Integración PostgreSQL — Período Mensual y Cierre de As
       // 5. Verificar outbox email
       const outboxMessages = await prismaEmployer1.outboxMessage.findMany({
         where: {
-          topic: 'email',
+          topic: 'notification.send_email',
         },
       });
       expect(outboxMessages.length).toBeGreaterThanOrEqual(1);
