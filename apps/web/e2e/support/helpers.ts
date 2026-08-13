@@ -166,9 +166,7 @@ export async function crearJornadaAprobadaHistorica(
     },
     body: JSON.stringify({ relationshipId, date: dateStr, minutes }),
   });
-  expect(
-    respuesta.ok,
-    `No se pudo crear la jornada aprobada histórica: ${await respuesta.text()}`,
-  ).toBeTruthy();
-  return ((await respuesta.json()) as { workDayId: string }).workDayId;
+  const body = await respuesta.text();
+  expect(respuesta.ok, `No se pudo crear la jornada aprobada histórica: ${body}`).toBeTruthy();
+  return (JSON.parse(body) as { workDayId: string }).workDayId;
 }
