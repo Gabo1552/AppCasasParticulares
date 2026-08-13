@@ -458,4 +458,58 @@ describe('Pruebas de Integración PostgreSQL — Fichaje, Corrección y Aprobaci
     expect(approved.status).toBe('APPROVED');
     expect(approved.approvedMinutes).toBeGreaterThanOrEqual(59);
   });
+
+  it('10. Idempotencia concurrente con misma clave en clock-out: dos clientes concurrentes obtienen la misma jornada cerrada', async () => {
+    const { relationship, workerActor } = await createActiveRelationshipFixture();
+
+    const inRes = await timeTrackingWorker.clockIn(
+      workerActor,
+      relationship.id,
+      { method: 'BUTTON' },
+      'in-idemp-concurrent-out',
+    );
+
+    const [out1, out2] = await Promise.all([
+      timeTrackingWorker.clockOut(workerActor, inRes.id, {
+        clientIdempotencyKey: 'same-out-key-10',
+      }),
+      timeTrackingWorker2.clockOut(workerActor, inRes.id, {
+        clientIdempotencyKey: 'same-out-key-10',
+      }),
+    ]);
+
+    expect(out1.id).toBe(inRes.id);
+    expect(out2.id).toBe(inRes.id);
+    expect(out1.status).toBe(WorkDayStatus.PENDING_APPROVAL);
+    expect(out2.status).toBe(WorkDayStatus.PENDING_APPROVAL);
+
+    const clockOutEntriesCount = await prismaEmployer.timeEntry.count({
+      where: {
+        employmentRelationshipId: relationship.id,
+        clientIdempotencyKey: 'same-out-key-10',
+      },
+    });
+
+    expect(clockOutEntriesCount).toBe(1);
+  });
+
+  it('11. Invariante: No se puede aprobar una jornada incompleta sin entrada y salida', async () => {
+    const { relationship, employerActor } = await createActiveRelationshipFixture();
+
+    // Crear directamente una jornada PENDING_APPROVAL sin timeEntries en PostgreSQL
+    const incompleteWorkDay = await prismaEmployer.workDay.create({
+      data: {
+        employmentRelationshipId: relationship.id,
+        date: new Date('2026-09-10T00:00:00.000Z'),
+        status: WorkDayStatus.PENDING_APPROVAL,
+        version: 1,
+        realMinutes: 0,
+        computableMinutes: 0,
+      },
+    });
+
+    await expect(
+      timeTrackingEmployer.approve(employerActor, incompleteWorkDay.id, { expectedVersion: 1 }),
+    ).rejects.toThrow(UnprocessableError);
+  });
 });

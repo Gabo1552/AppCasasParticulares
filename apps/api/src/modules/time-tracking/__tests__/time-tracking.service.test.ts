@@ -520,8 +520,40 @@ describe('TimeTrackingService (unit)', () => {
         status: WorkDayStatus.PENDING_APPROVAL,
         version: 1,
         relationship: activeRelationship,
-        timeEntries: [],
+        timeEntries: [
+          {
+            kind: TimeEntryKind.CLOCK_IN,
+            declaredAt: new Date(),
+            status: TimeEntryStatus.PENDING_APPROVAL,
+          },
+          {
+            kind: TimeEntryKind.CLOCK_OUT,
+            declaredAt: new Date(),
+            status: TimeEntryStatus.PENDING_APPROVAL,
+          },
+        ],
         corrections: [{ id: 'c-1', status: 'PENDING' }],
+      });
+
+      await expect(service.approve(employerActor, 'wd-1', { expectedVersion: 1 })).rejects.toThrow(
+        UnprocessableError,
+      );
+    });
+
+    it('rechaza aprobar una jornada incompleta sin fichaje de entrada o salida', async () => {
+      prisma.workDay.findUnique.mockResolvedValue({
+        id: 'wd-1',
+        status: WorkDayStatus.PENDING_APPROVAL,
+        version: 1,
+        relationship: activeRelationship,
+        timeEntries: [
+          {
+            kind: TimeEntryKind.CLOCK_IN,
+            declaredAt: new Date(),
+            status: TimeEntryStatus.PENDING_APPROVAL,
+          },
+        ],
+        corrections: [],
       });
 
       await expect(service.approve(employerActor, 'wd-1', { expectedVersion: 1 })).rejects.toThrow(
@@ -535,7 +567,18 @@ describe('TimeTrackingService (unit)', () => {
         status: WorkDayStatus.PENDING_APPROVAL,
         version: 2,
         relationship: activeRelationship,
-        timeEntries: [],
+        timeEntries: [
+          {
+            kind: TimeEntryKind.CLOCK_IN,
+            declaredAt: new Date(),
+            status: TimeEntryStatus.PENDING_APPROVAL,
+          },
+          {
+            kind: TimeEntryKind.CLOCK_OUT,
+            declaredAt: new Date(),
+            status: TimeEntryStatus.PENDING_APPROVAL,
+          },
+        ],
         corrections: [],
       });
 

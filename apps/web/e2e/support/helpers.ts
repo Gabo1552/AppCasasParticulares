@@ -98,6 +98,7 @@ export async function crearPerfil(
   await page.getByLabel(/Acepto los términos/).check();
   await page.getByLabel(/Acepto la política/).check();
   await page.getByRole('button', { name: 'Crear mi perfil' }).click();
+  await expect(page).not.toHaveURL(/\/onboarding\/(familia|trabajadora)/);
 }
 
 export const DOMICILIO = {
@@ -116,6 +117,7 @@ export async function cargarDomicilio(page: Page): Promise<void> {
   await page.getByLabel('Localidad').fill(DOMICILIO.localidad);
   await page.getByLabel('Código postal').fill(DOMICILIO.codigoPostal);
   await page.getByRole('button', { name: 'Guardar domicilio' }).click();
+  await expect(page).not.toHaveURL(/\/domicilios\/nuevo/);
 }
 
 /** Carga las condiciones acordadas en la pantalla de la relación. */
