@@ -90,7 +90,7 @@ Exactamente los 16 pasos del encargo. Cada uno es una historia con test.
 | 6   | Se genera un calendario semanal         | `work-schedules`                             | REL-04                         | ✅ Completo |
 | 7   | La trabajadora ficha entrada y salida   | `time-tracking`                              | FIC-01, FIC-02, FIC-05         | ✅ Completo |
 | 8   | La familia aprueba el fichaje           | `time-tracking`, `attendance-corrections`    | FIC-06, FIC-07                 | ✅ Completo |
-| 9   | Se abre un período mensual              | `payroll-periods`                            | LIQ-01                         |             |
+| 9   | Se abre un período mensual              | `payroll-periods`                            | LIQ-01                         | ✅ Completo |
 | 10  | Se calcula la preliquidación (fixtures) | `payroll-calculations`, `payroll-parameters` | LIQ-02, LIQ-04, LIQ-11         |             |
 | 11  | La familia ve el detalle de conceptos   | `payroll-calculations`, web                  | LIQ-11, LIQ-14                 |             |
 | 12  | Se genera una tarea ARCA asistida       | `arca-tasks`                                 | ARC-01, ARC-02, ARC-04         |             |
@@ -99,12 +99,12 @@ Exactamente los 16 pasos del encargo. Cada uno es una historia con test.
 | 15  | El período queda conciliado             | `reconciliation`                             | ARC-07, PAG-06                 |             |
 | 16  | Todo queda auditado                     | `audit`                                      | SEG-08                         |             |
 
-Los pasos 1 a 8 están completados y verificados. Los pasos 9 a 16 siguen pendientes.
+Los pasos 1 a 9 están completados y verificados. Los pasos 10 a 16 siguen pendientes.
 
 **Criterio de salida**: un test E2E de Playwright recorre los 16 pasos; la tabla `audit_event` contiene
 los 15 tipos de evento esperados; el período llega a `RECONCILED`.
 
-### Estado de los pasos 1 a 8
+### Estado de los pasos 1 a 9
 
 Entregados y verificados contra PostgreSQL real y en navegador:
 
@@ -117,25 +117,9 @@ Entregados y verificados contra PostgreSQL real y en navegador:
 - **Activación bilateral** mediante evidencia criptográfica inmutable.
 - **Fichaje de entrada y salida (E3.7)** con idempotencia, registro en servidor y validación de relación activa.
 - **Revisión, correcciones y aprobación (E3.8)** con historial de valores propuestos, minutos aprobados deterministas y prevención de concurrencia stale (409).
+- **Período mensual y cierre de asistencia (E3.9)** con snapshot inmutable de los minutos aprobados, frontera de concurrencia y rechazo de fichajes sobre un mes cerrado.
 
-- **Autenticación** por código de un solo uso enviado por correo. Sin contraseñas y sin OAuth. El
-  código se guarda como HMAC ligado al destino, vence a los 10 minutos, admite 5 intentos y está
-  limitado a 5 pedidos por ventana de 15 minutos. La respuesta es idéntica exista o no la cuenta.
-- **Sesiones** con refresh rotativo: reutilizar un token ya rotado invalida la familia entera.
-  Cookies `HttpOnly` + doble envío de CSRF. El modelo ya tiene `mfaEnabled` y el secreto cifrado,
-  así que sumar MFA no exige migrar.
-- **Perfiles** de familia y trabajadora con los mismos campos. Crear el perfil es lo que otorga el
-  rol: un usuario autenticado sin perfil no puede operar. No se pide clave fiscal, datos bancarios,
-  información impositiva ni documentación.
-- **Domicilios** con propiedad verificada por objeto: un domicilio ajeno responde 404, no 403.
-  Baja lógica, nunca borrado. Sin coordenadas en este sprint.
-- **Invitaciones** con token de 32 bytes guardado sólo como hash, de un solo uso, con vencimiento,
-  reenvío que invalida el anterior y baja. Aceptar **no** crea una relación activa.
-- **Condiciones y calendario**, con la remuneración como decimal exacto de punta a punta y el aviso
-  de datos de prueba en toda pantalla que muestre montos o categorías.
-- **Activación sólo por la trabajadora** (ADR 0002). No existe endpoint genérico de cambio de estado.
-
-Cobertura: 262 pruebas unitarias, 48 de integración contra PostgreSQL real y 4 recorridos E2E en
+Cobertura: 387 pruebas unitarias, 82 de integración contra PostgreSQL real y 7 recorridos E2E en
 Chromium. Los ocho casos negativos de autorización del encargo tienen prueba propia.
 
 **Deuda conocida de los pasos 1 a 6**: sin paginación en los listados (no hace falta con los
