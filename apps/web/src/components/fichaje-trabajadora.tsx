@@ -42,7 +42,14 @@ export function FichajeTrabajadora({ relacion }: Propiedades): ReactNode {
     void cargarJornadas();
   }, [cargarJornadas]);
 
-  const hoyLocal = new Date().toISOString().slice(0, 10);
+  // La fecha de la jornada la fija el servidor en la zona horaria del
+  // domicilio, así que "hoy" hay que calcularlo con la misma zona. Con
+  // toISOString() —es decir, UTC— entre las 21:00 y la medianoche de Buenos
+  // Aires el navegador ya estaba en el día siguiente y la jornada en curso
+  // dejaba de encontrarse.
+  const hoyLocal = new Date().toLocaleDateString('en-CA', {
+    timeZone: relacion.household.timezone,
+  });
   const jornadaHoy = jornadas?.find((j) => j.date === hoyLocal) ?? jornadas?.[0];
   const jornadaAbierta = jornadas?.find((j) => j.status === 'OPEN');
 
