@@ -41,7 +41,7 @@
     "@types/node": "^26.1.2",
     "eslint": "^10.8.0",
     "typescript": "^6.0.3",
-    "vitest": "^3.2.7",
+    "vitest": "^4.1.11",
     "@types/cookie-parser": "^1.4.8",
     "@types/nodemailer": "^7.0.4",
     "supertest": "^7.0.0",
