@@ -1,20 +1,20 @@
 import { Module } from '@nestjs/common';
+import { AuditService } from '../../common/audit/audit.service';
+import { PrismaService } from '../../common/prisma/prisma.service';
+import { PayrollParametersModule } from '../payroll-parameters/payroll-parameters.module';
+import { PayrollCalculationsController } from './payroll-calculations.controller';
+import { PayrollCalculationsService } from './payroll-calculations.service';
 
 /**
- * Módulo PayrollCalculations.
+ * Modulo PayrollCalculations.
  *
- * Invoca el motor y persiste conceptos, obligaciones, advertencias y traza.
- *
- * Requerimientos que cubre: LIQ-04..LIQ-06, LIQ-11, LIQ-14.
- *
- * Estado: declarado en la Etapa 2 (base técnica). Los casos de uso se implementan
- * en la Etapa 3 (recorrido vertical), según docs/implementation-roadmap.md.
- * Anatomía esperada del módulo: docs/architecture.md §5.
+ * Paso 10 del recorrido vertical: invoca el motor puro y persiste la
+ * preliquidacion con su traza. Requerimientos: LIQ-02, LIQ-04, LIQ-11, LIQ-14.
  */
 @Module({
-  imports: [],
-  controllers: [],
-  providers: [],
-  exports: [],
+  imports: [PayrollParametersModule],
+  controllers: [PayrollCalculationsController],
+  providers: [PrismaService, AuditService, PayrollCalculationsService],
+  exports: [PayrollCalculationsService],
 })
 export class PayrollCalculationsModule {}

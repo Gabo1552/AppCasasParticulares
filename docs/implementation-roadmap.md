@@ -91,7 +91,7 @@ Exactamente los 16 pasos del encargo. Cada uno es una historia con test.
 | 7   | La trabajadora ficha entrada y salida   | `time-tracking`                              | FIC-01, FIC-02, FIC-05         | ✅ Completo |
 | 8   | La familia aprueba el fichaje           | `time-tracking`, `attendance-corrections`    | FIC-06, FIC-07                 | ✅ Completo |
 | 9   | Se abre un período mensual              | `payroll-periods`                            | LIQ-01                         | ✅ Completo |
-| 10  | Se calcula la preliquidación (fixtures) | `payroll-calculations`, `payroll-parameters` | LIQ-02, LIQ-04, LIQ-11         |             |
+| 10  | Se calcula la preliquidación (fixtures) | `payroll-calculations`, `payroll-parameters` | LIQ-02, LIQ-04, LIQ-11         | ✅ Completo |
 | 11  | La familia ve el detalle de conceptos   | `payroll-calculations`, web                  | LIQ-11, LIQ-14                 |             |
 | 12  | Se genera una tarea ARCA asistida       | `arca-tasks`                                 | ARC-01, ARC-02, ARC-04         |             |
 | 13  | Se carga un recibo de prueba            | `arca-documents`, `documents`                | ARC-05, DOC-01, DOC-04         |             |
@@ -99,12 +99,12 @@ Exactamente los 16 pasos del encargo. Cada uno es una historia con test.
 | 15  | El período queda conciliado             | `reconciliation`                             | ARC-07, PAG-06                 |             |
 | 16  | Todo queda auditado                     | `audit`                                      | SEG-08                         |             |
 
-Los pasos 1 a 9 están completados y verificados. Los pasos 10 a 16 siguen pendientes.
+Los pasos 1 a 10 están completados y verificados. Los pasos 11 a 16 siguen pendientes.
 
 **Criterio de salida**: un test E2E de Playwright recorre los 16 pasos; la tabla `audit_event` contiene
 los 15 tipos de evento esperados; el período llega a `RECONCILED`.
 
-### Estado de los pasos 1 a 9
+### Estado de los pasos 1 a 10
 
 Entregados y verificados contra PostgreSQL real y en navegador:
 
@@ -118,8 +118,9 @@ Entregados y verificados contra PostgreSQL real y en navegador:
 - **Fichaje de entrada y salida (E3.7)** con idempotencia, registro en servidor y validación de relación activa.
 - **Revisión, correcciones y aprobación (E3.8)** con historial de valores propuestos, minutos aprobados deterministas y prevención de concurrencia stale (409).
 - **Período mensual y cierre de asistencia (E3.9)** con snapshot inmutable de los minutos aprobados, frontera de concurrencia y rechazo de fichajes sobre un mes cerrado.
+- **Preliquidación (E3.10)**: el motor puro se invoca sobre el snapshot inmutable y el resultado se persiste con su traza. La versión de parámetros se resuelve por el rango del período (RN-02), un error bloqueante no genera versión, y recalcular deja la anterior intacta (RN-06).
 
-Cobertura: 387 pruebas unitarias, 82 de integración contra PostgreSQL real y 7 recorridos E2E en
+Cobertura: 414 pruebas unitarias, 89 de integración contra PostgreSQL real y 7 recorridos E2E en
 Chromium. Los ocho casos negativos de autorización del encargo tienen prueba propia.
 
 **Deuda conocida de los pasos 1 a 6**: sin paginación en los listados (no hace falta con los
